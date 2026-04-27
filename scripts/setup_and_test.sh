@@ -454,7 +454,7 @@ AR_AGING=$(auth_get "/reports/ar-aging")
 AR_TOTAL=$(echo "$AR_AGING" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-total = sum(c.get('total',0) for c in data.get('customers',[]))
+total = sum(c.get('total',0) for c in data.get('items', data.get('customers',[])))
 print(total)
 " 2>/dev/null || echo "0")
 echo "    AR Outstanding: \$$AR_TOTAL (expected: \$770 — Invoice D partial)"

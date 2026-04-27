@@ -184,9 +184,17 @@ async function testRegistration() {
 async function testLogin() {
     console.log('\x1b[1m[2/11] Login...\x1b[0m');
 
-    // If we're not already logged in, do the login
-    const loginScreen = await page.$('#login-screen:not(.hidden)');
-    if (loginScreen) {
+    // Check if auto-login after registration already got us in
+    const sidebar = await page.$('#sidebar');
+    const sidebarVisible = sidebar ? await page.evaluate(el => {
+        const style = getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+    }, sidebar) : false;
+
+    if (!sidebarVisible) {
+        // Need to login manually
+        await sleep(500);
+
         // Make sure login form is showing (not register)
         const loginForm = await page.$('#login-form:not(.hidden)');
         if (!loginForm) {
@@ -197,6 +205,7 @@ async function testLogin() {
             }
         }
 
+        await page.waitForSelector('#login-username', { visible: true, timeout: 5000 });
         await clearAndType('#login-username', 'gmirabelli');
         await clearAndType('#login-password', 'slowbooks2026');
         await page.click('#login-submit');
@@ -357,7 +366,7 @@ async function testCreateInvoices() {
         const rows = document.querySelectorAll('#content table tbody tr');
         return rows.length;
     });
-    assert(invCount >= 4, `Invoice list shows ${invCount} invoices (expected 4)`);
+    assert(invCount === 4, `Invoice list shows ${invCount} invoices (expected 4)`);
     console.log('');
 }
 
