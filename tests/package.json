@@ -1,0 +1,11 @@
+{
+  "name": "slowbooks-e2e-tests",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node e2e.test.js"
+  },
+  "dependencies": {
+    "puppeteer": "^24.0.0"
+  }
+}

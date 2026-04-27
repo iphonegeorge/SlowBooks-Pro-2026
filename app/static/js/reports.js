@@ -599,9 +599,9 @@ const ReportsPage = {
             ).join('');
             rows += `<tr style="font-weight:700; background:var(--gray-50);">
                 <td>TOTAL</td>
-                <td class="amount">${formatCurrency(data.totals.gst_collected)}</td>
-                <td class="amount">${formatCurrency(data.totals.gst_input_credits)}</td>
-                <td class="amount" style="${data.totals.net_gst_payable >= 0 ? 'color:var(--danger)' : 'color:var(--success)'}">${formatCurrency(data.totals.net_gst_payable)}</td>
+                <td class="amount">${formatCurrency(data.total_gst_collected)}</td>
+                <td class="amount">${formatCurrency(data.total_gst_input_credits)}</td>
+                <td class="amount" style="${data.total_net_gst_payable >= 0 ? 'color:var(--danger)' : 'color:var(--success)'}">${formatCurrency(data.total_net_gst_payable)}</td>
             </tr>`;
             content.innerHTML = `
                 <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">Accounting basis: ${escapeHtml(data.accounting_basis)}</div>

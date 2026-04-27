@@ -99,7 +99,7 @@ class InvoiceLine(Base):
     class_name = Column(String(100), nullable=True)
     line_order = Column(Integer, default=0)
     # GST fields
-    gst_classification = Column(Enum(GSTClassification), default=GSTClassification.TAXABLE, nullable=True)
+    gst_classification = Column(Enum(GSTClassification, values_callable=lambda x: [e.value for e in x]), default=GSTClassification.TAXABLE, nullable=True)
     gst_amount = Column(Numeric(12, 2), default=0, nullable=True)
 
     invoice = relationship("Invoice", back_populates="lines")

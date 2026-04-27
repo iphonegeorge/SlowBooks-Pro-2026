@@ -149,7 +149,9 @@ def get_gst_input_credits_account_id(db: Session) -> int | None:
 
 
 def get_accounting_basis(db: Session) -> str:
-    """Return 'cash' or 'accrual' from settings. Defaults to 'accrual'."""
-    from app.models.settings import Settings
+    """Return 'cash' or 'accrual' from settings. Uses DEFAULT_SETTINGS fallback."""
+    from app.models.settings import Settings, DEFAULT_SETTINGS
     row = db.query(Settings).filter(Settings.key == "accounting_basis").first()
-    return row.value if row and row.value in ("cash", "accrual") else "accrual"
+    if row and row.value in ("cash", "accrual"):
+        return row.value
+    return DEFAULT_SETTINGS.get("accounting_basis", "accrual")

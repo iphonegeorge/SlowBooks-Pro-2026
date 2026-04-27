@@ -307,7 +307,7 @@ const InvoicesPage = {
             <td><input class="line-desc" value="${escapeHtml(line.description || '')}"></td>
             <td><input class="line-qty" type="number" step="0.01" value="${line.quantity || 1}" oninput="InvoicesPage.recalc()"></td>
             <td><input class="line-rate" type="number" step="0.01" value="${line.rate || 0}" oninput="InvoicesPage.recalc()"></td>
-            <td><select class="line-gst">
+            <td><select class="line-gst" onchange="InvoicesPage.recalc()">
                 <option value="TAXABLE" ${gstVal==='TAXABLE'?'selected':''}>Taxable</option>
                 <option value="GST_FREE" ${gstVal==='GST_FREE'?'selected':''}>GST Free</option>
                 <option value="INPUT_TAXED" ${gstVal==='INPUT_TAXED'?'selected':''}>Input Taxed</option>
@@ -342,16 +342,19 @@ const InvoicesPage = {
 
     recalc() {
         let subtotal = 0;
+        let taxableSubtotal = 0;
         $$('#inv-lines tr').forEach(row => {
             const qty = parseFloat(row.querySelector('.line-qty')?.value) || 0;
             const rate = parseFloat(row.querySelector('.line-rate')?.value) || 0;
             const amount = qty * rate;
             subtotal += amount;
+            const gst = row.querySelector('.line-gst')?.value || 'TAXABLE';
+            if (gst === 'TAXABLE') taxableSubtotal += amount;
             const amountCell = row.querySelector('.line-amount');
             if (amountCell) amountCell.textContent = formatCurrency(amount);
         });
         const taxPct = parseFloat($('[name="tax_rate"]')?.value) || 0;
-        const tax = subtotal * (taxPct / 100);
+        const tax = taxableSubtotal * (taxPct / 100);
         $('#inv-subtotal').textContent = formatCurrency(subtotal);
         $('#inv-tax').textContent = formatCurrency(tax);
         $('#inv-total').textContent = formatCurrency(subtotal + tax);

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.auth import get_current_user
 from app.models.bills import Bill, BillLine, BillStatus
+from app.models.invoices import GSTClassification
 from app.models.users import User
 from app.models.contacts import Vendor
 from app.models.items import Item
@@ -70,8 +71,15 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db), current_user: U
         except ValueError:
             due_date = data.date + timedelta(days=30)
 
-    subtotal = sum(Decimal(str(l.quantity)) * Decimal(str(l.rate)) for l in data.lines)
-    tax_amount = subtotal * Decimal(str(data.tax_rate))
+    subtotal = Decimal("0")
+    taxable_subtotal = Decimal("0")
+    for l in data.lines:
+        line_amt = Decimal(str(l.quantity)) * Decimal(str(l.rate))
+        subtotal += line_amt
+        gst_cls = (l.gst_classification or '').upper()
+        if gst_cls in ('TAXABLE', ''):
+            taxable_subtotal += line_amt
+    tax_amount = taxable_subtotal * Decimal(str(data.tax_rate))
     total = subtotal + tax_amount
 
     bill = Bill(
@@ -100,10 +108,20 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db), current_user: U
         if not expense_acct:
             expense_acct = default_expense_id
 
+        gst_cls = None
+        if line_data.gst_classification:
+            try:
+                gst_cls = GSTClassification(line_data.gst_classification.lower())
+            except ValueError:
+                gst_cls = GSTClassification.TAXABLE
+        line_gst = Decimal("0")
+        if gst_cls == GSTClassification.TAXABLE and data.tax_rate:
+            line_gst = (amt * Decimal(str(data.tax_rate))).quantize(Decimal("0.01"))
         db.add(BillLine(
             bill_id=bill.id, item_id=line_data.item_id, account_id=expense_acct,
             description=line_data.description, quantity=line_data.quantity,
             rate=line_data.rate, amount=amt, line_order=line_data.line_order or i,
+            gst_classification=gst_cls, gst_amount=line_gst,
         ))
 
         # Accrual basis: recognise expense now; Cash basis: defer to payment

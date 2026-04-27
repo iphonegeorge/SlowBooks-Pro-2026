@@ -9,6 +9,7 @@ class BillLineCreate(BaseModel):
     description: Optional[str] = None
     quantity: float = 1
     rate: float = 0
+    gst_classification: Optional[str] = None
     line_order: int = 0
 
 

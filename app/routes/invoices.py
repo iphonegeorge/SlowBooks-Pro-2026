@@ -21,7 +21,7 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models.users import User
 from app.models.accounts import Account
-from app.models.invoices import Invoice, InvoiceLine, InvoiceStatus
+from app.models.invoices import GSTClassification, Invoice, InvoiceLine, InvoiceStatus
 from app.models.items import Item
 from app.models.contacts import Customer
 from app.schemas.invoices import InvoiceCreate, InvoiceUpdate, InvoiceResponse
@@ -47,9 +47,22 @@ def _next_invoice_number(db: Session) -> str:
 
 def _compute_totals(lines_data, tax_rate):
     """From CInvoice::RecalcTotals() @ 0x0015CE40 — tax was always line-level
-    in the original but we simplified to invoice-level. Sorry, Intuit."""
-    subtotal = sum(l.quantity * l.rate for l in lines_data)
-    tax_amount = subtotal * tax_rate
+    in the original but we simplified to invoice-level. Sorry, Intuit.
+    Updated: only TAXABLE lines attract GST; GST_FREE and INPUT_TAXED are 0%."""
+    subtotal = Decimal("0")
+    taxable_subtotal = Decimal("0")
+    for l in lines_data:
+        line_amount = l.quantity * l.rate
+        subtotal += line_amount
+        gst_cls = getattr(l, 'gst_classification', None) or ''
+        if isinstance(gst_cls, str):
+            gst_cls = gst_cls.upper()
+        else:
+            gst_cls = str(gst_cls).upper()
+        if gst_cls in ('TAXABLE', 'GSTCLASSIFICATION.TAXABLE', ''):
+            # Default (no classification) and TAXABLE lines attract GST
+            taxable_subtotal += line_amount
+    tax_amount = taxable_subtotal * tax_rate
     total = subtotal + tax_amount
     return subtotal, tax_amount, total
 
@@ -130,15 +143,28 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db), current_u
     db.flush()
 
     for i, line_data in enumerate(data.lines):
+        gst_cls = None
+        if line_data.gst_classification:
+            try:
+                gst_cls = GSTClassification(line_data.gst_classification.lower())
+            except ValueError:
+                gst_cls = GSTClassification.TAXABLE
+        line_amount = line_data.quantity * line_data.rate
+        # Compute per-line GST: only TAXABLE lines attract GST
+        line_gst = Decimal("0")
+        if gst_cls == GSTClassification.TAXABLE and data.tax_rate:
+            line_gst = (line_amount * data.tax_rate).quantize(Decimal("0.01"))
         line = InvoiceLine(
             invoice_id=invoice.id,
             item_id=line_data.item_id,
             description=line_data.description,
             quantity=line_data.quantity,
             rate=line_data.rate,
-            amount=line_data.quantity * line_data.rate,
+            amount=line_amount,
             class_name=line_data.class_name,
             line_order=line_data.line_order or i,
+            gst_classification=gst_cls,
+            gst_amount=line_gst,
         )
         db.add(line)
 
@@ -215,20 +241,33 @@ def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(g
     if data.lines is not None:
         # Replace lines
         db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice_id).delete()
+        effective_tax_rate = data.tax_rate if data.tax_rate is not None else invoice.tax_rate
         for i, line_data in enumerate(data.lines):
+            gst_cls = None
+            if line_data.gst_classification:
+                try:
+                    gst_cls = GSTClassification(line_data.gst_classification.lower())
+                except ValueError:
+                    gst_cls = GSTClassification.TAXABLE
+            line_amount = line_data.quantity * line_data.rate
+            line_gst = Decimal("0")
+            if gst_cls == GSTClassification.TAXABLE and effective_tax_rate:
+                line_gst = (line_amount * effective_tax_rate).quantize(Decimal("0.01"))
             line = InvoiceLine(
                 invoice_id=invoice_id,
                 item_id=line_data.item_id,
                 description=line_data.description,
                 quantity=line_data.quantity,
                 rate=line_data.rate,
-                amount=line_data.quantity * line_data.rate,
+                amount=line_amount,
                 class_name=line_data.class_name,
                 line_order=line_data.line_order or i,
+                gst_classification=gst_cls,
+                gst_amount=line_gst,
             )
             db.add(line)
 
-        tax_rate = data.tax_rate if data.tax_rate is not None else invoice.tax_rate
+        tax_rate = effective_tax_rate
         subtotal, tax_amount, total = _compute_totals(data.lines, tax_rate)
         invoice.subtotal = subtotal
         invoice.tax_amount = tax_amount
@@ -609,6 +648,7 @@ def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db), current_us
             amount=oline.amount,
             class_name=oline.class_name,
             line_order=oline.line_order,
+            gst_classification=oline.gst_classification,
         )
         db.add(new_line)
 

@@ -14,6 +14,7 @@ class InvoiceLineCreate(BaseModel):
     rate: Decimal = Decimal("0")
     amount: Decimal = Decimal("0")
     class_name: Optional[str] = None
+    gst_classification: Optional[str] = None
     line_order: int = 0
 
 
