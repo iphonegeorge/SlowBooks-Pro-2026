@@ -19,6 +19,7 @@ from quickbooks import QuickBooks
 from sqlalchemy.orm import Session
 
 from app.models.settings import Settings, DEFAULT_SETTINGS
+from app.services.crypto_service import encrypt_value, decrypt_value, is_sensitive_key
 
 
 # ============================================================================
@@ -29,12 +30,17 @@ def _get_setting(db: Session, key: str) -> str:
     """Get a single setting value, falling back to DEFAULT_SETTINGS."""
     row = db.query(Settings).filter(Settings.key == key).first()
     if row:
-        return row.value or ""
+        value = row.value or ""
+        if is_sensitive_key(key):
+            value = decrypt_value(value)
+        return value
     return DEFAULT_SETTINGS.get(key, "")
 
 
 def _set_setting(db: Session, key: str, value: str):
     """Upsert a single setting."""
+    if is_sensitive_key(key) and value:
+        value = encrypt_value(value)
     row = db.query(Settings).filter(Settings.key == key).first()
     if row:
         row.value = value

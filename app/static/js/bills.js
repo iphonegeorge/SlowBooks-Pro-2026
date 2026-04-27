@@ -137,13 +137,14 @@ const BillsPage = {
                 </div>
                 <h3 style="margin:12px 0 8px;font-size:14px;">Line Items</h3>
                 <table class="line-items-table">
-                    <thead><tr><th>Item</th><th>Description</th><th class="col-qty">Qty</th><th class="col-rate">Rate</th><th class="col-amount">Amount</th></tr></thead>
+                    <thead><tr><th>Item</th><th>Description</th><th class="col-qty">Qty</th><th class="col-rate">Rate</th><th>GST</th><th class="col-amount">Amount</th></tr></thead>
                     <tbody id="bill-lines">
                         <tr data-billline="0">
                             <td><select class="line-item"><option value="">--</option>${itemOpts}</select></td>
                             <td><input class="line-desc"></td>
                             <td><input class="line-qty" type="number" step="0.01" value="1"></td>
                             <td><input class="line-rate" type="number" step="0.01" value="0"></td>
+                            <td><select class="line-gst"><option value="TAXABLE" selected>Taxable</option><option value="GST_FREE">GST Free</option><option value="INPUT_TAXED">Input Taxed</option></select></td>
                             <td class="col-amount">$0.00</td>
                         </tr>
                     </tbody>
@@ -167,6 +168,7 @@ const BillsPage = {
                 <td><input class="line-desc"></td>
                 <td><input class="line-qty" type="number" step="0.01" value="1"></td>
                 <td><input class="line-rate" type="number" step="0.01" value="0"></td>
+                <td><select class="line-gst"><option value="TAXABLE" selected>Taxable</option><option value="GST_FREE">GST Free</option><option value="INPUT_TAXED">Input Taxed</option></select></td>
                 <td class="col-amount">$0.00</td>
             </tr>`);
     },
@@ -181,6 +183,7 @@ const BillsPage = {
                 description: row.querySelector('.line-desc')?.value || '',
                 quantity: parseFloat(row.querySelector('.line-qty')?.value) || 1,
                 rate: parseFloat(row.querySelector('.line-rate')?.value) || 0,
+                gst_classification: row.querySelector('.line-gst')?.value || 'TAXABLE',
                 line_order: i,
             });
         });
@@ -326,7 +329,7 @@ const BillsPage = {
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         try {
-            const resp = await fetch(`/api/attachments/bill/${billId}`, { method: 'POST', body: formData });
+            const resp = await fetch(`/api/attachments/bill/${billId}`, { method: 'POST', body: formData, headers: API.authHeaders() });
             if (!resp.ok) { const d = await resp.json(); throw new Error(d.detail || 'Upload failed'); }
             toast('Attachment uploaded');
             fileInput.value = '';

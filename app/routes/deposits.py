@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.transactions import Transaction, TransactionLine
 from app.models.accounts import Account
 from app.schemas.deposits import DepositCreate, PendingDepositResponse
@@ -20,7 +22,7 @@ router = APIRouter(prefix="/api/deposits", tags=["deposits"])
 
 
 @router.get("/pending", response_model=list[PendingDepositResponse])
-def list_pending_deposits(db: Session = Depends(get_db)):
+def list_pending_deposits(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get payments sitting in Undeposited Funds (1200) — debit entries."""
     uf_id = get_undeposited_funds_id(db)
     if not uf_id:
@@ -71,7 +73,7 @@ def list_pending_deposits(db: Session = Depends(get_db)):
 
 
 @router.post("")
-def create_deposit(data: DepositCreate, db: Session = Depends(get_db)):
+def create_deposit(data: DepositCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     check_closing_date(db, data.date)
 
     bank_account = db.query(Account).filter(Account.id == data.deposit_to_account_id).first()

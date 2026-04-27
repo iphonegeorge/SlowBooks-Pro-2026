@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.credit_memos import CreditMemo, CreditMemoLine, CreditMemoStatus, CreditApplication
 from app.models.invoices import Invoice, InvoiceStatus
 from app.models.contacts import Customer
@@ -33,7 +35,7 @@ def _next_cm_number(db: Session) -> str:
 
 
 @router.get("", response_model=list[CreditMemoResponse])
-def list_credit_memos(customer_id: int = None, status: str = None, db: Session = Depends(get_db)):
+def list_credit_memos(customer_id: int = None, status: str = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = db.query(CreditMemo)
     if customer_id:
         q = q.filter(CreditMemo.customer_id == customer_id)
@@ -50,7 +52,7 @@ def list_credit_memos(customer_id: int = None, status: str = None, db: Session =
 
 
 @router.get("/{cm_id}", response_model=CreditMemoResponse)
-def get_credit_memo(cm_id: int, db: Session = Depends(get_db)):
+def get_credit_memo(cm_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     cm = db.query(CreditMemo).filter(CreditMemo.id == cm_id).first()
     if not cm:
         raise HTTPException(status_code=404, detail="Credit memo not found")
@@ -61,7 +63,7 @@ def get_credit_memo(cm_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=CreditMemoResponse, status_code=201)
-def create_credit_memo(data: CreditMemoCreate, db: Session = Depends(get_db)):
+def create_credit_memo(data: CreditMemoCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     check_closing_date(db, data.date)
 
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
@@ -134,7 +136,7 @@ def create_credit_memo(data: CreditMemoCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/{cm_id}/apply")
-def apply_credit(cm_id: int, data: CreditApplicationCreate, db: Session = Depends(get_db)):
+def apply_credit(cm_id: int, data: CreditApplicationCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Apply credit memo to an invoice."""
     cm = db.query(CreditMemo).filter(CreditMemo.id == cm_id).first()
     if not cm:

@@ -14,6 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+from app.models.invoices import GSTClassification
 
 
 class BillStatus(str, enum.Enum):
@@ -70,6 +71,9 @@ class BillLine(Base):
     rate = Column(Numeric(12, 2), default=0)
     amount = Column(Numeric(12, 2), default=0)
     line_order = Column(Integer, default=0)
+    # GST fields
+    gst_classification = Column(Enum(GSTClassification), default=GSTClassification.TAXABLE, nullable=True)
+    gst_amount = Column(Numeric(12, 2), default=0, nullable=True)
 
     bill = relationship("Bill", back_populates="lines")
     item = relationship("Item")

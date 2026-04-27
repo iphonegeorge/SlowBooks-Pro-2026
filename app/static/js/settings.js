@@ -40,6 +40,32 @@ const SettingsPage = {
                             <input name="company_website" value="${escapeHtml(s.company_website || '')}"></div>
                         <div class="form-group"><label>Tax ID / EIN</label>
                             <input name="company_tax_id" value="${escapeHtml(s.company_tax_id || '')}"></div>
+                        <div class="form-group"><label>Country</label>
+                            <select name="country">
+                                ${['AU','US','GB','NZ','CA'].map(c =>
+                                    `<option value="${c}" ${(s.country||'AU')===c?'selected':''}>${{AU:'Australia',US:'United States',GB:'United Kingdom',NZ:'New Zealand',CA:'Canada'}[c]}</option>`).join('')}
+                            </select></div>
+                        <div class="form-group"><label>Currency</label>
+                            <select name="currency">
+                                ${['AUD','USD','GBP','NZD','CAD'].map(c =>
+                                    `<option value="${c}" ${(s.currency||'AUD')===c?'selected':''}>${c}</option>`).join('')}
+                            </select></div>
+                        <div class="form-group"><label>ABN (Australian Business Number)</label>
+                            <input name="abn" value="${escapeHtml(s.abn || '')}" placeholder="12 345 678 901" maxlength="14"></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Accounting</h3>
+                    <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">
+                        Choose how income and expenses are recognised. Cash basis records on payment; Accrual basis records on invoice/bill creation.
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Accounting Basis</label>
+                            <select name="accounting_basis">
+                                <option value="accrual" ${(s.accounting_basis||'accrual')==='accrual'?'selected':''}>Accrual</option>
+                                <option value="cash" ${s.accounting_basis==='cash'?'selected':''}>Cash</option>
+                            </select></div>
                     </div>
                 </div>
 
@@ -88,8 +114,8 @@ const SettingsPage = {
                         <div class="form-group"><label>Closing Date</label>
                             <input name="closing_date" type="date" value="${escapeHtml(s.closing_date || '')}"></div>
                         <div class="form-group"><label>Password (optional)</label>
-                            <input name="closing_date_password" type="password" value="${escapeHtml(s.closing_date_password || '')}"
-                                placeholder="Leave blank for no password"></div>
+                            <input name="closing_date_password" type="password" value=""
+                                placeholder="${s.closing_date_password ? '(password set — leave blank to keep)' : 'Leave blank for no password'}"></div>
                     </div>
                 </div>
 
@@ -217,6 +243,8 @@ const SettingsPage = {
         const data = Object.fromEntries(new FormData(e.target).entries());
         // Remove file input from data
         delete data.file;
+        // Don't overwrite closing date password if left blank
+        if (!data.closing_date_password) delete data.closing_date_password;
         try {
             await API.put('/settings', data);
             toast('Settings saved');
@@ -230,9 +258,7 @@ const SettingsPage = {
         const formData = new FormData();
         formData.append('file', input.files[0]);
         try {
-            const resp = await fetch('/api/uploads/logo', { method: 'POST', body: formData });
-            const data = await resp.json();
-            if (!resp.ok) throw new Error(data.detail || 'Upload failed');
+            await API.upload('/uploads/logo', formData);
             toast('Logo uploaded');
             App.navigate('#/settings');
         } catch (err) { toast(err.message, 'error'); }

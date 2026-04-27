@@ -3,6 +3,7 @@
 # Feature 11: Database backup and restore accessible from settings
 # ============================================================================
 
+import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +44,7 @@ def create_backup(db: Session, notes: str = None, backup_type: str = "manual") -
         result = subprocess.run(
             ["pg_dump", "-h", params["host"], "-p", params["port"],
              "-U", params["user"], "-F", "c", "-f", str(filepath), params["dbname"]],
-            env={**dict(__import__("os").environ), **env},
+            env={**dict(os.environ), **env},
             capture_output=True, text=True, timeout=300,
         )
         if result.returncode != 0:
@@ -80,7 +81,7 @@ def restore_backup(db: Session, filename: str) -> dict:
             ["pg_restore", "-h", params["host"], "-p", params["port"],
              "-U", params["user"], "-d", params["dbname"], "--clean", "--if-exists",
              str(filepath)],
-            env={**dict(__import__("os").environ), **env},
+            env={**dict(os.environ), **env},
             capture_output=True, text=True, timeout=300,
         )
         # pg_restore may return non-zero even on partial success

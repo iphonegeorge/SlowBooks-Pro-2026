@@ -10,7 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.accounts import Account
+from app.models.users import User
 from app.schemas.cc_charges import CCChargeCreate, CCChargeResponse
 from app.services.accounting import create_journal_entry
 from app.services.closing_date import check_closing_date
@@ -25,7 +27,7 @@ def _get_cc_account_id(db):
 
 
 @router.get("")
-def list_cc_charges(db: Session = Depends(get_db)):
+def list_cc_charges(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """List credit card charge transactions."""
     txns = (
         db.query(Transaction)
@@ -55,7 +57,7 @@ def list_cc_charges(db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-def create_cc_charge(data: CCChargeCreate, db: Session = Depends(get_db)):
+def create_cc_charge(data: CCChargeCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     check_closing_date(db, data.date)
 
     cc_account_id = _get_cc_account_id(db)

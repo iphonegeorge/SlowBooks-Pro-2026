@@ -13,5 +13,7 @@ class AuditLogResponse(BaseModel):
     changed_fields: Optional[list] = None
     timestamp: Optional[datetime] = None
     source: Optional[str] = None
+    user_id: Optional[int] = None
+    username: Optional[str] = None
 
     model_config = {"from_attributes": True}

@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.bank_rules import BankRule
+from app.models.users import User
 from app.models.banking import BankTransaction
 from app.schemas.bank_rules import BankRuleCreate, BankRuleUpdate, BankRuleResponse
 
@@ -15,12 +17,12 @@ router = APIRouter(prefix="/api/bank-rules", tags=["bank-rules"])
 
 
 @router.get("", response_model=list[BankRuleResponse])
-def list_rules(db: Session = Depends(get_db)):
+def list_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return db.query(BankRule).order_by(BankRule.priority.desc(), BankRule.name).all()
 
 
 @router.get("/{rule_id}", response_model=BankRuleResponse)
-def get_rule(rule_id: int, db: Session = Depends(get_db)):
+def get_rule(rule_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     rule = db.query(BankRule).filter(BankRule.id == rule_id).first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -28,7 +30,7 @@ def get_rule(rule_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=BankRuleResponse, status_code=201)
-def create_rule(data: BankRuleCreate, db: Session = Depends(get_db)):
+def create_rule(data: BankRuleCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     rule = BankRule(**data.model_dump())
     db.add(rule)
     db.commit()
@@ -37,7 +39,7 @@ def create_rule(data: BankRuleCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{rule_id}", response_model=BankRuleResponse)
-def update_rule(rule_id: int, data: BankRuleUpdate, db: Session = Depends(get_db)):
+def update_rule(rule_id: int, data: BankRuleUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     rule = db.query(BankRule).filter(BankRule.id == rule_id).first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -49,7 +51,7 @@ def update_rule(rule_id: int, data: BankRuleUpdate, db: Session = Depends(get_db
 
 
 @router.delete("/{rule_id}")
-def delete_rule(rule_id: int, db: Session = Depends(get_db)):
+def delete_rule(rule_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     rule = db.query(BankRule).filter(BankRule.id == rule_id).first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -59,7 +61,7 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/apply")
-def apply_rules(db: Session = Depends(get_db)):
+def apply_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Apply all active rules to unmatched bank transactions."""
     rules = (
         db.query(BankRule)

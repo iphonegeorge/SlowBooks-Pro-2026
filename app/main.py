@@ -1,26 +1,19 @@
 # ============================================================================
-# Slowbooks Pro 2026 — "It's like QuickBooks, but we own the source code"
-# Reverse-engineered from Intuit QuickBooks Pro 2003 (Build 12.0.3190)
-# Original binary: QBW32.EXE (14,823,424 bytes, PE32 MSVC++ 6.0 SP5)
-# Decompilation target: CQBMainApp (WinMain entry point @ 0x00401000)
-# ============================================================================
-# LEGAL: This is a clean-room reimplementation. No Intuit source code was
-# available or used. All knowledge derived from:
-#   1. IDA Pro 7.x disassembly of publicly distributed QB2003 trial binary
-#   2. Published Intuit SDK documentation (QBFC 5.0, qbXML 4.0)
-#   3. 14 years of clicking every menu item as a paying customer
-#   4. Pervasive PSQL v8 file format documentation (Btrieve API Guide)
-# Intuit's activation servers have been dead since ~2017. The hard drive
-# that had our licensed copy died in 2024. We just want to print invoices.
+# Slowbooks Pro 2026 — Self-hosted accounting for small business
 # ============================================================================
 
+import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.auth import router as auth_router
 from app.routes import (
     dashboard, accounts, customers, vendors, items,
     invoices, estimates, payments, banking, reports, settings, iif,
@@ -50,17 +43,57 @@ from app.routes import bank_rules, budgets, attachments, email_templates
 from app.database import SessionLocal
 from app.services.audit import register_audit_hooks
 
-app = FastAPI(title="Slowbooks Pro 2026", version="2.0.0")
+# ---------------------------------------------------------------------------
+# Rate limiter (shared instance)
+# ---------------------------------------------------------------------------
+from app.limiter import limiter
 
+# ---------------------------------------------------------------------------
+# Security headers middleware
+# ---------------------------------------------------------------------------
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://js.stripe.com; "
+            "style-src 'self' 'unsafe-inline'; "
+            "frame-src https://js.stripe.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self'"
+        )
+        return response
+
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
+
+app = FastAPI(title="Slowbooks Pro 2026", version="2.1.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS — configurable origins, no wildcard
+allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3003").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[o.strip() for o in allowed_origins],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "X-Company-Id"],
 )
 
-# Original API routes
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Auth routes (login, register — no JWT required)
+app.include_router(auth_router)
+
+# API routes (all require JWT via get_current_user dependency in each route)
 app.include_router(dashboard.router)
 app.include_router(accounts.router)
 app.include_router(customers.router)

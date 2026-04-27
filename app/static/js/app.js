@@ -91,8 +91,18 @@ const App = {
     },
 
     showAbout() {
-        const splash = $('#splash');
-        if (splash) splash.classList.remove('hidden');
+        openModal('About Slowbooks Pro', `
+            <div style="text-align:center; padding:12px;">
+                <div style="font-size:20px; font-weight:700;">Slowbooks Pro</div>
+                <div style="font-size:11px; color:var(--qb-gold); font-weight:700; letter-spacing:0.15em; text-transform:uppercase; margin-bottom:12px;">2026 Edition</div>
+                <div style="font-size:10px; color:var(--text-muted); line-height:1.6;">
+                    <strong>Build 12.0.3190-R</strong> &mdash; Reconstructed<br>
+                    Clean-room reimplementation. No Intuit source code was used.
+                </div>
+                <div class="form-actions" style="margin-top:16px;">
+                    <button class="btn btn-primary" onclick="closeModal()">OK</button>
+                </div>
+            </div>`);
     },
 
     // Theme toggle — Feature 12: Dark Mode
@@ -414,7 +424,7 @@ const App = {
         const formData = new FormData();
         formData.append('file', form.file.files[0]);
         try {
-            const resp = await fetch(`/api/csv/import/${entity}`, { method: 'POST', body: formData });
+            const resp = await fetch(`/api/csv/import/${entity}`, { method: 'POST', body: formData, headers: API.authHeaders() });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.detail || 'Import failed');
             let html = `<div style="color:var(--success); font-size:11px;">Imported ${data.imported} ${entity}.</div>`;
@@ -575,7 +585,7 @@ const App = {
         } catch (err) { toast(err.message, 'error'); }
     },
 
-    // Load company name from settings for status bar
+    // Load company name and locale from settings for status bar
     async loadCompanyName() {
         try {
             const s = await API.get('/settings');
@@ -583,47 +593,163 @@ const App = {
             if (companyEl && s.company_name && s.company_name !== 'My Company') {
                 companyEl.textContent = `Company: ${s.company_name}`;
             }
+            // Configure locale/currency from settings
+            const currencyMap = { AU: 'AUD', US: 'USD', GB: 'GBP', NZ: 'NZD', CA: 'CAD' };
+            const localeMap = { AU: 'en-AU', US: 'en-US', GB: 'en-GB', NZ: 'en-NZ', CA: 'en-CA' };
+            const country = s.country || 'AU';
+            setLocaleSettings(
+                s.currency || currencyMap[country] || 'AUD',
+                localeMap[country] || 'en-AU'
+            );
         } catch (e) { /* ignore on load */ }
     },
 
-    init() {
-        window.addEventListener('hashchange', () => App.navigate(location.hash));
+    // --- Authentication UI ---
 
+    showLogin() {
+        $('#app').classList.add('hidden');
+        const ls = $('#login-screen');
+        ls.classList.remove('hidden');
+        ls.style.display = '';
+        $('#login-form').classList.remove('hidden');
+        $('#register-form').classList.add('hidden');
+        $('#login-error').classList.add('hidden');
+        $('#login-username').value = '';
+        $('#login-password').value = '';
+    },
+
+    showRegister(e) {
+        if (e) e.preventDefault();
+        $('#login-form').classList.add('hidden');
+        $('#register-form').classList.remove('hidden');
+        $('#register-error').classList.add('hidden');
+    },
+
+    showLoginForm(e) {
+        if (e) e.preventDefault();
+        $('#register-form').classList.add('hidden');
+        $('#login-form').classList.remove('hidden');
+        $('#login-error').classList.add('hidden');
+    },
+
+    async handleLogin(e) {
+        e.preventDefault();
+        const errEl = $('#login-error');
+        errEl.classList.add('hidden');
+        const btn = $('#login-submit');
+        btn.disabled = true;
+        btn.textContent = 'Logging in...';
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: $('#login-username').value,
+                    password: $('#login-password').value,
+                }),
+            });
+            const data = await res.json().catch(() => ({ detail: res.statusText }));
+            if (!res.ok) throw new Error(data.detail || 'Login failed');
+            API.setToken(data.access_token);
+            API.setUser(data.user);
+            App.enterApp();
+        } catch (err) {
+            errEl.textContent = err.message;
+            errEl.classList.remove('hidden');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Log In';
+        }
+    },
+
+    async handleRegister(e) {
+        e.preventDefault();
+        const errEl = $('#register-error');
+        errEl.classList.add('hidden');
+        const btn = $('#register-submit');
+        btn.disabled = true;
+        btn.textContent = 'Creating...';
+        try {
+            const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: $('#reg-username').value,
+                    email: $('#reg-email').value,
+                    password: $('#reg-password').value,
+                }),
+            });
+            const data = await res.json().catch(() => ({ detail: res.statusText }));
+            if (!res.ok) throw new Error(data.detail || 'Registration failed');
+            // Auto-login after registration
+            const loginRes = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: $('#reg-username').value,
+                    password: $('#reg-password').value,
+                }),
+            });
+            const loginData = await loginRes.json().catch(() => ({ detail: loginRes.statusText }));
+            if (!loginRes.ok) throw new Error(loginData.detail || 'Login failed after registration');
+            API.setToken(loginData.access_token);
+            API.setUser(loginData.user);
+            App.enterApp();
+        } catch (err) {
+            errEl.textContent = err.message;
+            errEl.classList.remove('hidden');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Create Account';
+        }
+    },
+
+    enterApp() {
+        $('#login-screen').classList.add('hidden');
+        $('#app').classList.remove('hidden');
+        // Show username in topbar
+        const user = API.getUser();
+        const userEl = $('#topbar-user');
+        if (userEl && user) userEl.textContent = user.username;
+        // Load app data
+        App.loadCompanyName();
+        App.navigate(location.hash || '#/');
+    },
+
+    // --- Init ---
+
+    init() {
         // Load saved theme
         App.loadTheme();
 
+        // Start clock
+        App.updateClock();
+        setInterval(App.updateClock, 60000);
+
+        window.addEventListener('hashchange', () => App.navigate(location.hash));
+
         // Keyboard shortcuts — CAcceleratorTable @ 0x00042800
         document.addEventListener('keydown', (e) => {
-            // Ctrl+Enter: submit quick entry form
             if (e.ctrlKey && e.key === 'Enter') {
                 const qeForm = $('#qe-form');
                 if (qeForm) { qeForm.requestSubmit(); e.preventDefault(); }
             }
-            // Ctrl+S: save current modal form (Feature 13)
             if (e.ctrlKey && e.key === 's') {
                 const modalForm = document.querySelector('#modal-body form');
                 if (modalForm) { modalForm.requestSubmit(); e.preventDefault(); }
             }
-            // Alt+N: new invoice
             if (e.altKey && e.key === 'n') { InvoicesPage.showForm(); e.preventDefault(); }
-            // Alt+P: receive payment
             if (e.altKey && e.key === 'p') { PaymentsPage.showForm(); e.preventDefault(); }
-            // Alt+Q: quick entry
             if (e.altKey && e.key === 'q') { App.navigate('#/quick-entry'); e.preventDefault(); }
-            // Alt+H: home/dashboard
             if (e.altKey && e.key === 'h') { App.navigate('#/'); e.preventDefault(); }
-            // Alt+D: toggle dark mode (Feature 12)
             if (e.altKey && e.key === 'd') { App.toggleTheme(); e.preventDefault(); }
-            // Escape: close modal
             if (e.key === 'Escape') { closeModal(); }
-            // Ctrl+K or /: focus search (when not in an input)
             if ((e.ctrlKey && e.key === 'k') || (e.key === '/' && !e.target.closest('input,textarea,select'))) {
                 const search = $('#global-search');
                 if (search) { search.focus(); e.preventDefault(); }
             }
         });
 
-        // Close search dropdown on click outside
         document.addEventListener('click', (e) => {
             if (!e.target.closest('#global-search') && !e.target.closest('#search-results')) {
                 const dd = $('#search-results');
@@ -631,15 +757,24 @@ const App = {
             }
         });
 
-        // Start clock — CMainFrame::OnTimer() at 1-second interval (WM_TIMER id=1)
-        App.updateClock();
-        setInterval(App.updateClock, 60000);
-
-        // Load company name into status bar
-        App.loadCompanyName();
-
-        // Navigate after splash closes
-        App.navigate(location.hash || '#/');
+        // Check for existing token — if valid, enter app; otherwise show login
+        const token = API.getToken();
+        if (token) {
+            // Verify token is still valid
+            fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${token}` } })
+                .then(res => {
+                    if (res.ok) {
+                        App.enterApp();
+                    } else {
+                        API.setToken(null);
+                        API.setUser(null);
+                        App.showLogin();
+                    }
+                })
+                .catch(() => App.showLogin());
+        } else {
+            App.showLogin();
+        }
     },
 };
 

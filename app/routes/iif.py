@@ -10,13 +10,18 @@
 # Validate: POST /api/iif/validate -> checks .iif without importing
 # ============================================================================
 
+import logging
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+
+logger = logging.getLogger(__name__)
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.schemas.iif import IIFImportResult, IIFValidationReport
 from app.services.iif_export import (
     export_all, export_accounts, export_customers, export_vendors,
@@ -51,31 +56,31 @@ def _parse_date(s: str) -> date:
 # ============================================================================
 
 @router.get("/export/all")
-def export_all_iif(db: Session = Depends(get_db)):
+def export_all_iif(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     content = export_all(db)
     return _iif_response(content, "slowbooks_export.iif")
 
 
 @router.get("/export/accounts")
-def export_accounts_iif(db: Session = Depends(get_db)):
+def export_accounts_iif(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     content = export_accounts(db)
     return _iif_response(content, "accounts.iif")
 
 
 @router.get("/export/customers")
-def export_customers_iif(db: Session = Depends(get_db)):
+def export_customers_iif(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     content = export_customers(db)
     return _iif_response(content, "customers.iif")
 
 
 @router.get("/export/vendors")
-def export_vendors_iif(db: Session = Depends(get_db)):
+def export_vendors_iif(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     content = export_vendors(db)
     return _iif_response(content, "vendors.iif")
 
 
 @router.get("/export/items")
-def export_items_iif(db: Session = Depends(get_db)):
+def export_items_iif(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     content = export_items(db)
     return _iif_response(content, "items.iif")
 
@@ -85,6 +90,7 @@ def export_invoices_iif(
     date_from: str = Query(None),
     date_to: str = Query(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     content = export_invoices(db, _parse_date(date_from), _parse_date(date_to))
     return _iif_response(content, "invoices.iif")
@@ -95,13 +101,14 @@ def export_payments_iif(
     date_from: str = Query(None),
     date_to: str = Query(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     content = export_payments(db, _parse_date(date_from), _parse_date(date_to))
     return _iif_response(content, "payments.iif")
 
 
 @router.get("/export/estimates")
-def export_estimates_iif(db: Session = Depends(get_db)):
+def export_estimates_iif(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     content = export_estimates(db)
     return _iif_response(content, "estimates.iif")
 
@@ -111,7 +118,7 @@ def export_estimates_iif(db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.post("/import", response_model=IIFImportResult)
-async def import_iif(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def import_iif(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Upload and import an IIF file into Slowbooks.
 
     Processes accounts, customers, vendors, items, and transactions.
@@ -131,13 +138,14 @@ async def import_iif(file: UploadFile = File(...), db: Session = Depends(get_db)
         result = import_all(db, text)
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"Import failed: {str(e)}")
+        logger.exception("IIF import failed")
+        raise HTTPException(500, "Import failed")
 
     return result
 
 
 @router.post("/validate", response_model=IIFValidationReport)
-async def validate_iif_file(file: UploadFile = File(...)):
+async def validate_iif_file(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     """Validate an IIF file without importing — pre-flight check."""
     if not file.filename.lower().endswith(".iif"):
         raise HTTPException(400, "File must have .iif extension")

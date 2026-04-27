@@ -15,6 +15,22 @@ from sqlalchemy.orm import Session
 from app.models.transactions import Transaction, TransactionLine
 from app.models.accounts import Account
 
+# ---------------------------------------------------------------------------
+# Account number constants — replaces hardcoded magic numbers across codebase
+# ---------------------------------------------------------------------------
+AR_ACCOUNT_NUMBER = "1100"       # Accounts Receivable
+UNDEPOSITED_FUNDS_NUMBER = "1200"  # Undeposited Funds
+AP_ACCOUNT_NUMBER = "2000"       # Accounts Payable
+SALES_TAX_NUMBER = "2200"        # Sales Tax Payable
+DEFAULT_INCOME_NUMBER = "4000"   # Service Income
+LATE_FEE_INCOME_NUMBER = "4800"  # Late Fee Income
+DEFAULT_EXPENSE_NUMBER = "6000"  # Miscellaneous Expense
+CHECKING_ACCOUNT_NUMBER = "1000" # Checking Account
+CC_PAYABLE_NUMBER = "2100"       # Credit Card Payable
+GST_COLLECTED_NUMBER = "2210"    # GST Collected (liability)
+GST_PAYABLE_NUMBER = "2220"      # GST Payable (liability)
+GST_INPUT_CREDITS_NUMBER = "1800"  # GST Input Tax Credits (asset)
+
 
 def create_journal_entry(
     db: Session,
@@ -82,31 +98,58 @@ def create_journal_entry(
     return txn
 
 
-def get_ar_account_id(db: Session) -> int:
-    """Get Accounts Receivable account ID (1100)."""
-    acct = db.query(Account).filter(Account.account_number == "1100").first()
+def _get_account_id(db: Session, account_number: str) -> int | None:
+    """Get account ID by account number."""
+    acct = db.query(Account).filter(Account.account_number == account_number).first()
     return acct.id if acct else None
 
 
-def get_default_income_account_id(db: Session) -> int:
-    """Get default Service Income account ID (4000)."""
-    acct = db.query(Account).filter(Account.account_number == "4000").first()
-    return acct.id if acct else None
+def get_ar_account_id(db: Session) -> int | None:
+    return _get_account_id(db, AR_ACCOUNT_NUMBER)
 
 
-def get_sales_tax_account_id(db: Session) -> int:
-    """Get Sales Tax Payable account ID (2200)."""
-    acct = db.query(Account).filter(Account.account_number == "2200").first()
-    return acct.id if acct else None
+def get_default_income_account_id(db: Session) -> int | None:
+    return _get_account_id(db, DEFAULT_INCOME_NUMBER)
 
 
-def get_undeposited_funds_id(db: Session) -> int:
-    """Get Undeposited Funds account ID (1200)."""
-    acct = db.query(Account).filter(Account.account_number == "1200").first()
-    return acct.id if acct else None
+def get_sales_tax_account_id(db: Session) -> int | None:
+    return _get_account_id(db, SALES_TAX_NUMBER)
 
 
-def get_ap_account_id(db: Session) -> int:
-    """Get Accounts Payable account ID (2000)."""
-    acct = db.query(Account).filter(Account.account_number == "2000").first()
-    return acct.id if acct else None
+def get_undeposited_funds_id(db: Session) -> int | None:
+    return _get_account_id(db, UNDEPOSITED_FUNDS_NUMBER)
+
+
+def get_ap_account_id(db: Session) -> int | None:
+    return _get_account_id(db, AP_ACCOUNT_NUMBER)
+
+
+def get_late_fee_account_id(db: Session) -> int | None:
+    return _get_account_id(db, LATE_FEE_INCOME_NUMBER)
+
+
+def get_expense_account_id(db: Session) -> int | None:
+    return _get_account_id(db, DEFAULT_EXPENSE_NUMBER)
+
+
+def get_cc_payable_account_id(db: Session) -> int | None:
+    return _get_account_id(db, CC_PAYABLE_NUMBER)
+
+
+def get_checking_account_id(db: Session) -> int | None:
+    return _get_account_id(db, CHECKING_ACCOUNT_NUMBER)
+
+
+def get_gst_collected_account_id(db: Session) -> int | None:
+    return _get_account_id(db, GST_COLLECTED_NUMBER)
+
+
+def get_gst_input_credits_account_id(db: Session) -> int | None:
+    return _get_account_id(db, GST_INPUT_CREDITS_NUMBER)
+
+
+def get_accounting_basis(db: Session) -> str:
+    """Return 'cash' or 'accrual' from settings. Defaults to 'accrual'."""
+    from app.models.settings import Settings
+    row = db.query(Settings).filter(Settings.key == "accounting_basis").first()
+    return row.value if row and row.value in ("cash", "accrual") else "accrual"

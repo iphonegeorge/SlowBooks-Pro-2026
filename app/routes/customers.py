@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.contacts import Customer
 from app.schemas.contacts import CustomerCreate, CustomerUpdate, CustomerResponse
 
@@ -9,7 +11,7 @@ router = APIRouter(prefix="/api/customers", tags=["customers"])
 
 
 @router.get("", response_model=list[CustomerResponse])
-def list_customers(active_only: bool = False, search: str = None, db: Session = Depends(get_db)):
+def list_customers(active_only: bool = False, search: str = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = db.query(Customer)
     if active_only:
         q = q.filter(Customer.is_active == True)
@@ -19,7 +21,7 @@ def list_customers(active_only: bool = False, search: str = None, db: Session = 
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse)
-def get_customer(customer_id: int, db: Session = Depends(get_db)):
+def get_customer(customer_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -27,7 +29,7 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=CustomerResponse, status_code=201)
-def create_customer(data: CustomerCreate, db: Session = Depends(get_db)):
+def create_customer(data: CustomerCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     customer = Customer(**data.model_dump())
     db.add(customer)
     db.commit()
@@ -36,7 +38,7 @@ def create_customer(data: CustomerCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{customer_id}", response_model=CustomerResponse)
-def update_customer(customer_id: int, data: CustomerUpdate, db: Session = Depends(get_db)):
+def update_customer(customer_id: int, data: CustomerUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -48,7 +50,7 @@ def update_customer(customer_id: int, data: CustomerUpdate, db: Session = Depend
 
 
 @router.delete("/{customer_id}")
-def delete_customer(customer_id: int, db: Session = Depends(get_db)):
+def delete_customer(customer_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")

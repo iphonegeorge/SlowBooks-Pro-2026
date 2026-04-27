@@ -6,15 +6,20 @@
 # at 0x0015C9F0, which did a SELECT MAX on the Btrieve key.
 # ============================================================================
 
+import logging
 from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+
+logger = logging.getLogger(__name__)
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sqlfunc
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.accounts import Account
 from app.models.invoices import Invoice, InvoiceLine, InvoiceStatus
 from app.models.items import Item
@@ -24,6 +29,7 @@ from app.services.pdf_service import generate_invoice_pdf
 from app.services.accounting import (
     create_journal_entry, get_ar_account_id,
     get_default_income_account_id, get_sales_tax_account_id,
+    get_accounting_basis,
 )
 from app.routes.settings import _get_all as get_settings
 from app.services.closing_date import check_closing_date
@@ -49,8 +55,8 @@ def _compute_totals(lines_data, tax_rate):
 
 
 @router.get("", response_model=list[InvoiceResponse])
-def list_invoices(status: str = None, customer_id: int = None, db: Session = Depends(get_db)):
-    q = db.query(Invoice)
+def list_invoices(status: str = None, customer_id: int = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    q = db.query(Invoice).options(joinedload(Invoice.customer))
     if status:
         q = q.filter(Invoice.status == status)
     if customer_id:
@@ -66,7 +72,7 @@ def list_invoices(status: str = None, customer_id: int = None, db: Session = Dep
 
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
-def get_invoice(invoice_id: int, db: Session = Depends(get_db)):
+def get_invoice(invoice_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -77,7 +83,7 @@ def get_invoice(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=InvoiceResponse, status_code=201)
-def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
+def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     check_closing_date(db, data.date)
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
@@ -138,54 +144,54 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
 
     # ================================================================
     # Journal Entry — CInvoice::PostToJournal() @ 0x0015D800
-    # DR  Accounts Receivable (1100)     total
-    # CR  Income per line item           line amount
-    # CR  Sales Tax Payable (2200)       tax amount (if any)
+    # Accrual basis: DR AR, CR Income, CR Tax on invoice creation
+    # Cash basis: no journal entry — income recognised on payment receipt
     # ================================================================
-    ar_id = get_ar_account_id(db)
-    default_income_id = get_default_income_account_id(db)
-    tax_account_id = get_sales_tax_account_id(db)
+    basis = get_accounting_basis(db)
 
-    if ar_id and default_income_id:
-        journal_lines = []
-        # Debit A/R for total
-        journal_lines.append({
-            "account_id": ar_id,
-            "debit": Decimal(str(total)),
-            "credit": Decimal("0"),
-            "description": f"Invoice #{invoice_number}",
-        })
-        # Credit income for each line (use item's income account or default)
-        for line_data in data.lines:
-            line_amount = Decimal(str(line_data.quantity * line_data.rate))
-            if line_amount == 0:
-                continue
-            income_id = default_income_id
-            if line_data.item_id:
-                item = db.query(Item).filter(Item.id == line_data.item_id).first()
-                if item and item.income_account_id:
-                    income_id = item.income_account_id
-            journal_lines.append({
-                "account_id": income_id,
-                "debit": Decimal("0"),
-                "credit": line_amount,
-                "description": line_data.description or "",
-            })
-        # Credit sales tax if any
-        if tax_amount > 0 and tax_account_id:
-            journal_lines.append({
-                "account_id": tax_account_id,
-                "debit": Decimal("0"),
-                "credit": Decimal(str(tax_amount)),
-                "description": "Sales tax",
-            })
+    if basis == "accrual":
+        ar_id = get_ar_account_id(db)
+        default_income_id = get_default_income_account_id(db)
+        tax_account_id = get_sales_tax_account_id(db)
 
-        txn = create_journal_entry(
-            db, data.date, f"Invoice #{invoice_number} - {customer.name}",
-            journal_lines, source_type="invoice", source_id=invoice.id,
-            reference=invoice_number,
-        )
-        invoice.transaction_id = txn.id
+        if ar_id and default_income_id:
+            journal_lines = []
+            journal_lines.append({
+                "account_id": ar_id,
+                "debit": Decimal(str(total)),
+                "credit": Decimal("0"),
+                "description": f"Invoice #{invoice_number}",
+            })
+            for line_data in data.lines:
+                line_amount = Decimal(str(line_data.quantity * line_data.rate))
+                if line_amount == 0:
+                    continue
+                income_id = default_income_id
+                if line_data.item_id:
+                    item = db.query(Item).filter(Item.id == line_data.item_id).first()
+                    if item and item.income_account_id:
+                        income_id = item.income_account_id
+                journal_lines.append({
+                    "account_id": income_id,
+                    "debit": Decimal("0"),
+                    "credit": line_amount,
+                    "description": line_data.description or "",
+                })
+            if tax_amount > 0 and tax_account_id:
+                journal_lines.append({
+                    "account_id": tax_account_id,
+                    "debit": Decimal("0"),
+                    "credit": Decimal(str(tax_amount)),
+                    "description": "Sales tax",
+                })
+
+            txn = create_journal_entry(
+                db, data.date, f"Invoice #{invoice_number} - {customer.name}",
+                journal_lines, source_type="invoice", source_id=invoice.id,
+                reference=invoice_number,
+            )
+            invoice.transaction_id = txn.id
+    # Cash basis: no journal entry on invoice creation
 
     db.commit()
     db.refresh(invoice)
@@ -195,7 +201,7 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{invoice_id}", response_model=InvoiceResponse)
-def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(get_db)):
+def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -322,7 +328,7 @@ def update_invoice(invoice_id: int, data: InvoiceUpdate, db: Session = Depends(g
 
 
 @router.get("/{invoice_id}/pdf")
-def invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
+def invoice_pdf(invoice_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Generate PDF — CInvoicePrintLayout::RenderPage() @ 0x00220400"""
     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not inv:
@@ -337,7 +343,7 @@ def invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{invoice_id}/print-preview")
-def invoice_print_preview(invoice_id: int, db: Session = Depends(get_db)):
+def invoice_print_preview(invoice_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Render invoice as HTML page for browser print dialog (window.print())"""
     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not inv:
@@ -362,7 +368,7 @@ def invoice_print_preview(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{invoice_id}/void", response_model=InvoiceResponse)
-def void_invoice(invoice_id: int, db: Session = Depends(get_db)):
+def void_invoice(invoice_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """CInvoice::VoidTransaction() @ 0x0015DA00 — creates reversing entry"""
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
@@ -404,7 +410,7 @@ def void_invoice(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{invoice_id}/send", response_model=InvoiceResponse)
-def mark_invoice_sent(invoice_id: int, db: Session = Depends(get_db)):
+def mark_invoice_sent(invoice_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Mark invoice as sent — CInvoice::SetSentFlag() @ 0x0015D400"""
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
@@ -421,7 +427,7 @@ def mark_invoice_sent(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{invoice_id}/email")
-def email_invoice(invoice_id: int, data: dict, request: Request, db: Session = Depends(get_db)):
+def email_invoice(invoice_id: int, data: dict, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Email invoice as PDF attachment — Feature 8"""
     inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not inv:
@@ -471,11 +477,12 @@ def email_invoice(invoice_id: int, data: dict, request: Request, db: Session = D
         )
         db.add(log)
         db.commit()
-        raise HTTPException(status_code=500, detail=f"Email failed: {str(e)}")
+        logger.exception("Email send failed for invoice")
+        raise HTTPException(status_code=500, detail="Failed to send email")
 
 
 @router.post("/apply-late-fees")
-def apply_late_fees(db: Session = Depends(get_db)):
+def apply_late_fees(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Apply late fees to overdue invoices past the grace period."""
     from app.models.transactions import Transaction
     settings_dict = get_settings(db)
@@ -547,7 +554,7 @@ def apply_late_fees(db: Session = Depends(get_db)):
 
 
 @router.post("/{invoice_id}/duplicate", response_model=InvoiceResponse, status_code=201)
-def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db)):
+def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """CInvoice::Duplicate() @ 0x0015DC00 — copy invoice with new number"""
     original = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not original:
@@ -605,52 +612,51 @@ def duplicate_invoice(invoice_id: int, db: Session = Depends(get_db)):
         )
         db.add(new_line)
 
-    # Journal Entry — mirror what create_invoice does (DR A/R, CR Income per line)
-    ar_id = get_ar_account_id(db)
-    default_income_id = get_default_income_account_id(db)
-    tax_account_id = get_sales_tax_account_id(db)
+    # Journal Entry — accrual only (cash basis: no journal on invoice creation)
+    basis = get_accounting_basis(db)
+    if basis == "accrual":
+        ar_id = get_ar_account_id(db)
+        default_income_id = get_default_income_account_id(db)
+        tax_account_id = get_sales_tax_account_id(db)
 
-    if ar_id and default_income_id:
-        journal_lines = []
-        # Debit A/R for total
-        journal_lines.append({
-            "account_id": ar_id,
-            "debit": Decimal(str(new_invoice.total)),
-            "credit": Decimal("0"),
-            "description": f"Invoice #{new_number}",
-        })
-        # Credit income for each line
-        for oline in original.lines:
-            line_amount = Decimal(str(oline.amount))
-            if line_amount == 0:
-                continue
-            income_id = default_income_id
-            if oline.item_id:
-                item = db.query(Item).filter(Item.id == oline.item_id).first()
-                if item and item.income_account_id:
-                    income_id = item.income_account_id
+        if ar_id and default_income_id:
+            journal_lines = []
             journal_lines.append({
-                "account_id": income_id,
-                "debit": Decimal("0"),
-                "credit": line_amount,
-                "description": oline.description or "",
+                "account_id": ar_id,
+                "debit": Decimal(str(new_invoice.total)),
+                "credit": Decimal("0"),
+                "description": f"Invoice #{new_number}",
             })
-        # Credit sales tax if any
-        if new_invoice.tax_amount and new_invoice.tax_amount > 0 and tax_account_id:
-            journal_lines.append({
-                "account_id": tax_account_id,
-                "debit": Decimal("0"),
-                "credit": Decimal(str(new_invoice.tax_amount)),
-                "description": "Sales tax",
-            })
+            for oline in original.lines:
+                line_amount = Decimal(str(oline.amount))
+                if line_amount == 0:
+                    continue
+                income_id = default_income_id
+                if oline.item_id:
+                    item = db.query(Item).filter(Item.id == oline.item_id).first()
+                    if item and item.income_account_id:
+                        income_id = item.income_account_id
+                journal_lines.append({
+                    "account_id": income_id,
+                    "debit": Decimal("0"),
+                    "credit": line_amount,
+                    "description": oline.description or "",
+                })
+            if new_invoice.tax_amount and new_invoice.tax_amount > 0 and tax_account_id:
+                journal_lines.append({
+                    "account_id": tax_account_id,
+                    "debit": Decimal("0"),
+                    "credit": Decimal(str(new_invoice.tax_amount)),
+                    "description": "Sales tax",
+                })
 
-        customer = original.customer
-        txn = create_journal_entry(
-            db, today, f"Invoice #{new_number} - {customer.name if customer else ''}",
-            journal_lines, source_type="invoice", source_id=new_invoice.id,
-            reference=new_number,
-        )
-        new_invoice.transaction_id = txn.id
+            customer = original.customer
+            txn = create_journal_entry(
+                db, today, f"Invoice #{new_number} - {customer.name if customer else ''}",
+                journal_lines, source_type="invoice", source_id=new_invoice.id,
+                reference=new_number,
+            )
+            new_invoice.transaction_id = txn.id
 
     db.commit()
     db.refresh(new_invoice)

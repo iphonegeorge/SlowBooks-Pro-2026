@@ -21,13 +21,20 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+class GSTClassification(str, enum.Enum):
+    """Australian GST classification per line item."""
+    TAXABLE = "taxable"        # Standard 10% GST
+    GST_FREE = "gst_free"      # 0% — basic food, health, education
+    INPUT_TAXED = "input_taxed" # 0% — financial supplies, residential rent
+    NOT_APPLICABLE = "n/a"      # Non-GST (e.g. US transactions)
+
+
 class InvoiceStatus(str, enum.Enum):
-    # enum InvStatus @ 0x0015CA30 — originally a DWORD bitfield
-    DRAFT = "draft"        # 0x00 — "Pending" in original UI
-    SENT = "sent"          # 0x01
-    PARTIAL = "partial"    # 0x02 — "PartialPmt" internally
-    PAID = "paid"          # 0x04
-    VOID = "void"          # 0x08 — sets TxnVoidFlag in JRNL.DAT
+    DRAFT = "draft"
+    SENT = "sent"
+    PARTIAL = "partial"
+    PAID = "paid"
+    VOID = "void"
 
 
 class Invoice(Base):
@@ -91,6 +98,9 @@ class InvoiceLine(Base):
     amount = Column(Numeric(12, 2), default=0)
     class_name = Column(String(100), nullable=True)
     line_order = Column(Integer, default=0)
+    # GST fields
+    gst_classification = Column(Enum(GSTClassification), default=GSTClassification.TAXABLE, nullable=True)
+    gst_amount = Column(Numeric(12, 2), default=0, nullable=True)
 
     invoice = relationship("Invoice", back_populates="lines")
     item = relationship("Item")

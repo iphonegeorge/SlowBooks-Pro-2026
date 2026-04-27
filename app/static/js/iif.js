@@ -226,7 +226,7 @@ const IIFPage = {
 
         try {
             App.setStatus('Validating IIF file...');
-            const res = await fetch('/api/iif/validate', { method: 'POST', body: formData });
+            const res = await fetch('/api/iif/validate', { method: 'POST', body: formData, headers: API.authHeaders() });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: res.statusText }));
                 throw new Error(err.detail || 'Validation failed');
@@ -303,7 +303,7 @@ const IIFPage = {
 
         try {
             App.setStatus('Importing IIF file...');
-            const res = await fetch('/api/iif/import', { method: 'POST', body: formData });
+            const res = await fetch('/api/iif/import', { method: 'POST', body: formData, headers: API.authHeaders() });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: res.statusText }));
                 throw new Error(err.detail || 'Import failed');

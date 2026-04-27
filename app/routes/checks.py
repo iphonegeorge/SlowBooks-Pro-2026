@@ -9,7 +9,9 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.payments import Payment
+from app.models.users import User
 from app.models.bills import BillPayment, BillPaymentAllocation, Bill
 from app.models.contacts import Customer, Vendor
 from app.services.pdf_service import generate_check_pdf
@@ -23,6 +25,7 @@ def print_check(
     payment_id: int = Query(default=None),
     bill_payment_id: int = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Generate a check PDF for a payment or bill payment."""
     if payment_id:

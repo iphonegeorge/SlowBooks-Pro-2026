@@ -7,14 +7,16 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.banking import BankAccount
+from app.models.users import User
 from app.services.ofx_import import parse_ofx, import_transactions
 
 router = APIRouter(prefix="/api/bank-import", tags=["bank_import"])
 
 
 @router.post("/preview")
-async def preview_ofx(file: UploadFile = File(...)):
+async def preview_ofx(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     """Parse OFX/QFX file and return preview of transactions."""
     content = await file.read()
     try:
@@ -41,7 +43,7 @@ async def preview_ofx(file: UploadFile = File(...)):
 
 @router.post("/import/{bank_account_id}")
 async def import_ofx(bank_account_id: int, file: UploadFile = File(...),
-                     db: Session = Depends(get_db)):
+                     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Import OFX/QFX transactions into a bank account."""
     ba = db.query(BankAccount).filter(BankAccount.id == bank_account_id).first()
     if not ba:

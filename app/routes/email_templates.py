@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.email_templates import EmailTemplate
 from app.schemas.email_templates import EmailTemplateCreate, EmailTemplateUpdate, EmailTemplateResponse
 
@@ -54,12 +56,12 @@ DEFAULT_TEMPLATES = [
 
 
 @router.get("", response_model=list[EmailTemplateResponse])
-def list_templates(db: Session = Depends(get_db)):
+def list_templates(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return db.query(EmailTemplate).order_by(EmailTemplate.template_type, EmailTemplate.name).all()
 
 
 @router.get("/{template_id}", response_model=EmailTemplateResponse)
-def get_template(template_id: int, db: Session = Depends(get_db)):
+def get_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -67,7 +69,7 @@ def get_template(template_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=EmailTemplateResponse, status_code=201)
-def create_template(data: EmailTemplateCreate, db: Session = Depends(get_db)):
+def create_template(data: EmailTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     existing = db.query(EmailTemplate).filter(EmailTemplate.name == data.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Template with this name already exists")
@@ -79,7 +81,7 @@ def create_template(data: EmailTemplateCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{template_id}", response_model=EmailTemplateResponse)
-def update_template(template_id: int, data: EmailTemplateUpdate, db: Session = Depends(get_db)):
+def update_template(template_id: int, data: EmailTemplateUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -91,7 +93,7 @@ def update_template(template_id: int, data: EmailTemplateUpdate, db: Session = D
 
 
 @router.delete("/{template_id}")
-def delete_template(template_id: int, db: Session = Depends(get_db)):
+def delete_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -101,7 +103,7 @@ def delete_template(template_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/seed-defaults")
-def seed_defaults(db: Session = Depends(get_db)):
+def seed_defaults(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create default email templates if they don't exist."""
     created = 0
     for tpl in DEFAULT_TEMPLATES:

@@ -1,3 +1,4 @@
+from app.models.users import User, UserRole
 from app.models.accounts import Account
 from app.models.contacts import Customer, Vendor
 from app.models.items import Item
@@ -40,6 +41,7 @@ from app.models.attachments import Attachment
 from app.models.email_templates import EmailTemplate
 
 __all__ = [
+    "User", "UserRole",
     "Account", "Customer", "Vendor", "Item",
     "Transaction", "TransactionLine",
     "Invoice", "InvoiceLine",

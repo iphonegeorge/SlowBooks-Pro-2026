@@ -62,7 +62,7 @@ DEFAULT_SETTINGS = {
     "qbo_enabled": "false",
     "qbo_client_id": "",
     "qbo_client_secret": "",
-    "qbo_redirect_uri": "http://localhost:3001/api/qbo/callback",
+    "qbo_redirect_uri": "http://localhost:3003/api/qbo/callback",
     "qbo_environment": "sandbox",
     "qbo_access_token": "",
     "qbo_refresh_token": "",
@@ -73,4 +73,11 @@ DEFAULT_SETTINGS = {
     "late_fee_enabled": "false",
     "late_fee_rate": "1.5",
     "late_fee_grace_days": "15",
+    # Locale & Accounting Basis
+    "country": "AU",
+    "currency": "AUD",
+    "accounting_basis": "cash",  # "cash" or "accrual"
+    "abn": "",
+    "tax_system": "gst",  # "gst" (Australia), "sales_tax" (US), "none"
+    "gst_rate": "10.0",
 }

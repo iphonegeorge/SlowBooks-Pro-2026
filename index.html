@@ -9,32 +9,62 @@
 </head>
 <body>
     <!-- ================================================================
-         Splash screen — reconstructed from CAboutDlg (IDD_ABOUTBOX)
-         Original showed the QuickBooks logo, build number, and a
-         "Licensed to:" field read from HKCU\Software\Intuit\Registration
+         Login / Register screen — replaces the old splash screen
+         Uses splash-overlay/splash-box CSS (already styled).
+         First user to register becomes admin (bootstrap mode).
          ================================================================ -->
-    <div id="splash" class="splash-overlay">
-        <div class="splash-box">
+    <div id="login-screen" class="splash-overlay">
+        <div class="splash-box" style="width:380px; padding:30px 28px 24px;">
+
             <div class="splash-title">Slowbooks Pro</div>
             <div class="splash-subtitle">2026 Edition</div>
             <div class="splash-divider"></div>
-            <div class="splash-info">
-                <strong>Build 12.0.3190-R</strong> &mdash; Reconstructed<br>
-                Decompiled from Intuit QuickBooks Pro 2003<br>
-                QBW32.EXE (14,823,424 bytes &bull; PE32 MSVC++ 6.0 SP5)<br>
-                Original Pervasive PSQL v8 &rarr; PostgreSQL 16
+
+            <!-- Login form (default) -->
+            <form id="login-form" onsubmit="App.handleLogin(event)">
+                <div class="login-field">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" required autocomplete="username" autofocus>
+                </div>
+                <div class="login-field">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" required autocomplete="current-password">
+                </div>
+                <div id="login-error" class="login-error hidden"></div>
+                <button type="submit" class="splash-btn" id="login-submit" style="display:block; width:100%; margin-top:16px; padding:9px;">Log In</button>
+                <div class="login-switch">
+                    No account? <a href="#" onclick="App.showRegister(event)">Create first admin account</a>
+                </div>
+            </form>
+
+            <!-- Register form (first-run only) -->
+            <form id="register-form" class="hidden" onsubmit="App.handleRegister(event)">
+                <div class="login-field">
+                    <label for="reg-username">Username</label>
+                    <input type="text" id="reg-username" required autocomplete="username">
+                </div>
+                <div class="login-field">
+                    <label for="reg-email">Email</label>
+                    <input type="email" id="reg-email" required autocomplete="email">
+                </div>
+                <div class="login-field">
+                    <label for="reg-password">Password</label>
+                    <input type="password" id="reg-password" required minlength="8" maxlength="64" autocomplete="new-password">
+                </div>
+                <div id="register-error" class="login-error hidden"></div>
+                <button type="submit" class="splash-btn" id="register-submit" style="display:block; width:100%; margin-top:16px; padding:9px;">Create Account</button>
+                <div class="login-switch">
+                    Already have an account? <a href="#" onclick="App.showLoginForm(event)">Log in</a>
+                </div>
+            </form>
+
+            <div class="splash-info" style="margin-top:16px; margin-bottom:0;">
+                <strong>Build 12.0.3190-R</strong>
             </div>
-            <div class="splash-legal">
-                Clean-room reimplementation. No Intuit source code was used.<br>
-                All knowledge derived from IDA Pro disassembly, published SDK<br>
-                documentation (QBFC 5.0), and 14 years as a paying customer.<br>
-                Intuit's activation servers died ~2017. The hard drive died in 2024.
-            </div>
-            <button class="splash-btn" onclick="document.getElementById('splash').classList.add('hidden')">OK</button>
         </div>
     </div>
 
-    <div id="app">
+    <div id="app" class="hidden">
         <!-- Toolbar (CQBMenuBar + CQBToolBar) -->
         <div id="topbar">
             <div class="topbar-brand">Slowbooks Pro <span>2026</span></div>
@@ -51,9 +81,11 @@
                    oninput="App.globalSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';App.globalSearch('');}">
             <div id="search-results" class="search-dropdown hidden"></div>
             <div class="topbar-right">
+                <span id="topbar-user" class="topbar-user"></span>
                 <button class="tb-btn" id="theme-toggle" onclick="App.toggleTheme()" title="Toggle Dark Mode">&#9788;</button>
                 <div class="topbar-clock" id="topbar-clock"></div>
                 <button class="tb-btn" onclick="App.showAbout()">About</button>
+                <button class="tb-btn" onclick="API.logout()" title="Log Out">Log Out</button>
             </div>
         </div>
 

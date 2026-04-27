@@ -10,7 +10,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.attachments import Attachment
+from app.models.users import User
 from app.schemas.attachments import AttachmentResponse
 
 router = APIRouter(prefix="/api/attachments", tags=["attachments"])
@@ -24,6 +26,7 @@ async def upload_attachment(
     entity_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # Validate entity_type
     allowed_types = {"invoice", "bill", "estimate", "purchase_order", "vendor", "customer"}
@@ -62,7 +65,7 @@ async def upload_attachment(
 
 
 @router.get("/{entity_type}/{entity_id}", response_model=list[AttachmentResponse])
-def list_attachments(entity_type: str, entity_id: int, db: Session = Depends(get_db)):
+def list_attachments(entity_type: str, entity_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return (
         db.query(Attachment)
         .filter(Attachment.entity_type == entity_type, Attachment.entity_id == entity_id)
@@ -72,7 +75,7 @@ def list_attachments(entity_type: str, entity_id: int, db: Session = Depends(get
 
 
 @router.get("/download/{attachment_id}")
-def download_attachment(attachment_id: int, db: Session = Depends(get_db)):
+def download_attachment(attachment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     attachment = db.query(Attachment).filter(Attachment.id == attachment_id).first()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
@@ -92,7 +95,7 @@ def download_attachment(attachment_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{attachment_id}")
-def delete_attachment(attachment_id: int, db: Session = Depends(get_db)):
+def delete_attachment(attachment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     attachment = db.query(Attachment).filter(Attachment.id == attachment_id).first()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")

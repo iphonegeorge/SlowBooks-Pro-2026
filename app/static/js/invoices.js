@@ -237,7 +237,7 @@ const InvoicesPage = {
                 <table class="line-items-table">
                     <thead><tr>
                         <th>Item</th><th>Description</th><th class="col-qty">Qty</th>
-                        <th class="col-rate">Rate</th><th class="col-amount">Amount</th><th class="col-actions"></th>
+                        <th class="col-rate">Rate</th><th>GST</th><th class="col-amount">Amount</th><th class="col-actions"></th>
                     </tr></thead>
                     <tbody id="inv-lines">
                         ${inv.lines.map((l, i) => InvoicesPage.lineRowHtml(i, l, items)).join('')}
@@ -300,12 +300,18 @@ const InvoicesPage = {
 
     lineRowHtml(idx, line, items) {
         const itemOpts = items.map(i => `<option value="${i.id}" ${line.item_id==i.id?'selected':''}>${escapeHtml(i.name)}</option>`).join('');
+        const gstVal = line.gst_classification || 'TAXABLE';
         return `<tr data-line="${idx}">
             <td><select class="line-item" onchange="InvoicesPage.itemSelected(${idx})">
                 <option value="">--</option>${itemOpts}</select></td>
             <td><input class="line-desc" value="${escapeHtml(line.description || '')}"></td>
             <td><input class="line-qty" type="number" step="0.01" value="${line.quantity || 1}" oninput="InvoicesPage.recalc()"></td>
             <td><input class="line-rate" type="number" step="0.01" value="${line.rate || 0}" oninput="InvoicesPage.recalc()"></td>
+            <td><select class="line-gst">
+                <option value="TAXABLE" ${gstVal==='TAXABLE'?'selected':''}>Taxable</option>
+                <option value="GST_FREE" ${gstVal==='GST_FREE'?'selected':''}>GST Free</option>
+                <option value="INPUT_TAXED" ${gstVal==='INPUT_TAXED'?'selected':''}>Input Taxed</option>
+            </select></td>
             <td class="col-amount line-amount">${formatCurrency((line.quantity||1) * (line.rate||0))}</td>
             <td><button type="button" class="btn btn-sm btn-danger" onclick="InvoicesPage.removeLine(${idx})">X</button></td>
         </tr>`;
@@ -362,6 +368,7 @@ const InvoicesPage = {
                 description: row.querySelector('.line-desc')?.value || '',
                 quantity: parseFloat(row.querySelector('.line-qty')?.value) || 1,
                 rate: parseFloat(row.querySelector('.line-rate')?.value) || 0,
+                gst_classification: row.querySelector('.line-gst')?.value || 'TAXABLE',
                 line_order: i,
             });
         });
@@ -409,7 +416,7 @@ const InvoicesPage = {
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         try {
-            const resp = await fetch(`/api/attachments/invoice/${entityId}`, { method: 'POST', body: formData });
+            const resp = await fetch(`/api/attachments/invoice/${entityId}`, { method: 'POST', body: formData, headers: API.authHeaders() });
             if (!resp.ok) { const d = await resp.json(); throw new Error(d.detail || 'Upload failed'); }
             toast('Attachment uploaded');
             fileInput.value = '';

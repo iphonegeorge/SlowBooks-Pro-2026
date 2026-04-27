@@ -55,6 +55,10 @@ const ReportsPage = {
                     <div class="card-header">Budget vs Actual</div>
                     <p style="font-size:13px; color:var(--gray-500);">Monthly budget variance analysis</p>
                 </div>
+                <div class="card" style="cursor:pointer" onclick="ReportsPage.gstSummary()">
+                    <div class="card-header">GST Summary</div>
+                    <p style="font-size:13px; color:var(--gray-500);">Quarterly GST collected, input credits, and net payable</p>
+                </div>
             </div>`;
     },
 
@@ -563,5 +567,51 @@ const ReportsPage = {
             });
             toast(`Generated ${result.generated} letters, emailed ${result.emailed}`);
         } catch (err) { toast(err.message, 'error'); }
+    },
+
+    async gstSummary() {
+        const currentYear = new Date().getFullYear();
+        openModal('GST Summary', `
+            <div class="form-grid" style="margin-bottom:12px;">
+                <div class="form-group"><label>Year</label>
+                    <input id="gst-year" type="number" value="${currentYear}" style="width:100px;"></div>
+                <div class="form-group" style="align-self:end;">
+                    <button class="btn btn-primary" onclick="ReportsPage.loadGSTSummary()">Generate</button></div>
+            </div>
+            <div id="gst-summary-content"><div style="font-size:11px; color:var(--gray-500);">Select year and click Generate</div></div>
+            <div class="form-actions"><button class="btn btn-secondary" onclick="closeModal()">Close</button></div>`);
+    },
+
+    async loadGSTSummary() {
+        const year = $('#gst-year').value;
+        const content = $('#gst-summary-content');
+        content.innerHTML = '<div style="font-size:11px; color:var(--gray-500);">Loading...</div>';
+        try {
+            const data = await API.get(`/reports/gst-summary?year=${year}`);
+            const qNames = ['Jul\u2013Sep', 'Oct\u2013Dec', 'Jan\u2013Mar', 'Apr\u2013Jun'];
+            let rows = data.quarters.map((q, i) =>
+                `<tr>
+                    <td>Q${i + 1} (${qNames[i]})</td>
+                    <td class="amount">${formatCurrency(q.gst_collected)}</td>
+                    <td class="amount">${formatCurrency(q.gst_input_credits)}</td>
+                    <td class="amount" style="${q.net_gst_payable >= 0 ? 'color:var(--danger)' : 'color:var(--success)'}">${formatCurrency(q.net_gst_payable)}</td>
+                </tr>`
+            ).join('');
+            rows += `<tr style="font-weight:700; background:var(--gray-50);">
+                <td>TOTAL</td>
+                <td class="amount">${formatCurrency(data.totals.gst_collected)}</td>
+                <td class="amount">${formatCurrency(data.totals.gst_input_credits)}</td>
+                <td class="amount" style="${data.totals.net_gst_payable >= 0 ? 'color:var(--danger)' : 'color:var(--success)'}">${formatCurrency(data.totals.net_gst_payable)}</td>
+            </tr>`;
+            content.innerHTML = `
+                <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px;">Accounting basis: ${escapeHtml(data.accounting_basis)}</div>
+                <div class="table-container"><table>
+                    <thead><tr><th>Quarter</th><th class="amount">GST Collected</th><th class="amount">GST Input Credits</th><th class="amount">Net GST Payable</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>
+                <div style="font-size:10px; color:var(--text-muted); margin-top:8px;">
+                    Positive net = you owe the ATO. Negative = refund due.
+                </div>`;
+        } catch (err) { content.innerHTML = `<div style="color:var(--danger);">${escapeHtml(err.message)}</div>`; }
     },
 };

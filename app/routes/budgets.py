@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.budgets import Budget
+from app.models.users import User
 from app.models.accounts import Account
 from app.models.transactions import Transaction, TransactionLine
 from app.schemas.budgets import BudgetCreate, BudgetResponse
@@ -23,6 +25,7 @@ def list_budgets(
     year: int = Query(default=None),
     account_id: int = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     q = db.query(Budget)
     if year:
@@ -33,7 +36,7 @@ def list_budgets(
 
 
 @router.post("", response_model=BudgetResponse, status_code=201)
-def create_budget(data: BudgetCreate, db: Session = Depends(get_db)):
+def create_budget(data: BudgetCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     existing = db.query(Budget).filter(
         Budget.account_id == data.account_id,
         Budget.year == data.year,
@@ -52,7 +55,7 @@ def create_budget(data: BudgetCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/bulk")
-def bulk_upsert(items: list[BudgetCreate], db: Session = Depends(get_db)):
+def bulk_upsert(items: list[BudgetCreate], db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Batch upsert budget entries."""
     count = 0
     for item in items:
@@ -74,6 +77,7 @@ def bulk_upsert(items: list[BudgetCreate], db: Session = Depends(get_db)):
 def budget_variance(
     year: int = Query(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Compare budget vs actual TransactionLine sums per account per month."""
     from datetime import date

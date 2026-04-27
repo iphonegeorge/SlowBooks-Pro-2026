@@ -28,7 +28,7 @@ COPY . .
 
 RUN chmod +x docker-entrypoint.sh
 
-EXPOSE 3001
+EXPOSE 3003
 
 RUN useradd -m -r slowbooks && chown -R slowbooks:slowbooks /app
 USER slowbooks

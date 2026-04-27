@@ -7,28 +7,28 @@ from datetime import timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.bills import Bill, BillLine, BillStatus
+from app.models.users import User
 from app.models.contacts import Vendor
 from app.models.items import Item
 from app.models.accounts import Account
 from app.schemas.bills import BillCreate, BillUpdate, BillResponse
-from app.services.accounting import create_journal_entry
+from app.services.accounting import (
+    create_journal_entry, get_ap_account_id, get_accounting_basis,
+    get_expense_account_id, get_sales_tax_account_id,
+)
 from app.services.closing_date import check_closing_date
 
 router = APIRouter(prefix="/api/bills", tags=["bills"])
 
 
-def _get_ap_account_id(db):
-    acct = db.query(Account).filter(Account.account_number == "2000").first()
-    return acct.id if acct else None
-
-
 @router.get("", response_model=list[BillResponse])
-def list_bills(vendor_id: int = None, status: str = None, db: Session = Depends(get_db)):
-    q = db.query(Bill)
+def list_bills(vendor_id: int = None, status: str = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    q = db.query(Bill).options(joinedload(Bill.vendor))
     if vendor_id:
         q = q.filter(Bill.vendor_id == vendor_id)
     if status:
@@ -44,7 +44,7 @@ def list_bills(vendor_id: int = None, status: str = None, db: Session = Depends(
 
 
 @router.get("/{bill_id}", response_model=BillResponse)
-def get_bill(bill_id: int, db: Session = Depends(get_db)):
+def get_bill(bill_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     bill = db.query(Bill).filter(Bill.id == bill_id).first()
     if not bill:
         raise HTTPException(status_code=404, detail="Bill not found")
@@ -55,7 +55,7 @@ def get_bill(bill_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=BillResponse, status_code=201)
-def create_bill(data: BillCreate, db: Session = Depends(get_db)):
+def create_bill(data: BillCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     check_closing_date(db, data.date)
 
     vendor = db.query(Vendor).filter(Vendor.id == data.vendor_id).first()
@@ -84,9 +84,9 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db)):
     db.flush()
 
     # Default expense account for lines without explicit account
-    default_expense_id = db.query(Account).filter(Account.account_number == "6000").first()
-    default_expense_id = default_expense_id.id if default_expense_id else None
+    default_expense_id = get_expense_account_id(db)
 
+    basis = get_accounting_basis(db)
     journal_lines = []
     for i, line_data in enumerate(data.lines):
         amt = Decimal(str(line_data.quantity)) * Decimal(str(line_data.rate))
@@ -106,36 +106,39 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db)):
             rate=line_data.rate, amount=amt, line_order=line_data.line_order or i,
         ))
 
-        if amt > 0 and expense_acct:
+        # Accrual basis: recognise expense now; Cash basis: defer to payment
+        if basis == "accrual" and amt > 0 and expense_acct:
             journal_lines.append({
                 "account_id": expense_acct,
                 "debit": amt, "credit": Decimal("0"),
                 "description": line_data.description or "",
             })
 
-    # Tax line
-    if tax_amount > 0:
-        tax_acct = db.query(Account).filter(Account.account_number == "2200").first()
-        if tax_acct:
+    # Tax line (accrual only)
+    if basis == "accrual" and tax_amount > 0:
+        tax_acct_id = get_sales_tax_account_id(db)
+        if tax_acct_id:
             journal_lines.append({
-                "account_id": tax_acct.id,
+                "account_id": tax_acct_id,
                 "debit": tax_amount, "credit": Decimal("0"),
                 "description": "Sales tax on bill",
             })
 
-    # Credit AP
-    ap_id = _get_ap_account_id(db)
-    if ap_id and journal_lines:
-        journal_lines.append({
-            "account_id": ap_id,
-            "debit": Decimal("0"), "credit": total,
-            "description": f"Bill {data.bill_number} - {vendor.name}",
-        })
-        txn = create_journal_entry(
-            db, data.date, f"Bill {data.bill_number} - {vendor.name}",
-            journal_lines, source_type="bill", source_id=bill.id,
-        )
-        bill.transaction_id = txn.id
+    # Credit AP (accrual only)
+    if basis == "accrual":
+        ap_id = get_ap_account_id(db)
+        if ap_id and journal_lines:
+            journal_lines.append({
+                "account_id": ap_id,
+                "debit": Decimal("0"), "credit": total,
+                "description": f"Bill {data.bill_number} - {vendor.name}",
+            })
+            txn = create_journal_entry(
+                db, data.date, f"Bill {data.bill_number} - {vendor.name}",
+                journal_lines, source_type="bill", source_id=bill.id,
+            )
+            bill.transaction_id = txn.id
+    # Cash basis: no journal entry on bill creation
 
     db.commit()
     db.refresh(bill)
@@ -145,7 +148,7 @@ def create_bill(data: BillCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/{bill_id}/void", response_model=BillResponse)
-def void_bill(bill_id: int, db: Session = Depends(get_db)):
+def void_bill(bill_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     bill = db.query(Bill).filter(Bill.id == bill_id).first()
     if not bill:
         raise HTTPException(status_code=404, detail="Bill not found")

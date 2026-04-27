@@ -3,13 +3,18 @@
 # Feature: Allow users to create/view/void manual journal entries
 # ============================================================================
 
+import logging
 from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.transactions import Transaction, TransactionLine
 from app.models.accounts import Account
 from app.schemas.journal import JournalEntryCreate, JournalEntryResponse
@@ -20,7 +25,7 @@ router = APIRouter(prefix="/api/journal", tags=["journal"])
 
 
 @router.get("", response_model=list[JournalEntryResponse])
-def list_journal_entries(source_type: str = None, db: Session = Depends(get_db)):
+def list_journal_entries(source_type: str = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = db.query(Transaction)
     if source_type:
         q = q.filter(Transaction.source_type == source_type)
@@ -56,7 +61,7 @@ def list_journal_entries(source_type: str = None, db: Session = Depends(get_db))
 
 
 @router.get("/{entry_id}", response_model=JournalEntryResponse)
-def get_journal_entry(entry_id: int, db: Session = Depends(get_db)):
+def get_journal_entry(entry_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     txn = db.query(Transaction).filter(Transaction.id == entry_id).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Journal entry not found")
@@ -86,7 +91,7 @@ def get_journal_entry(entry_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=JournalEntryResponse, status_code=201)
-def create_manual_journal_entry(data: JournalEntryCreate, db: Session = Depends(get_db)):
+def create_manual_journal_entry(data: JournalEntryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     check_closing_date(db, data.date)
     lines = []
     for line in data.lines:
@@ -112,7 +117,8 @@ def create_manual_journal_entry(data: JournalEntryCreate, db: Session = Depends(
             reference=data.reference or "",
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("Journal entry creation failed")
+        raise HTTPException(status_code=400, detail="Failed to create journal entry")
 
     db.commit()
     db.refresh(txn)
@@ -120,7 +126,7 @@ def create_manual_journal_entry(data: JournalEntryCreate, db: Session = Depends(
 
 
 @router.post("/{entry_id}/void", response_model=JournalEntryResponse)
-def void_journal_entry(entry_id: int, db: Session = Depends(get_db)):
+def void_journal_entry(entry_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     txn = db.query(Transaction).filter(Transaction.id == entry_id).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Journal entry not found")

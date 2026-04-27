@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bookkeeper}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bookkeeper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-bookkeeper}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -18,8 +18,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+    networks:
+      - internal
 
   slowbooks:
     build: .
@@ -28,19 +28,34 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-bookkeeper}:${POSTGRES_PASSWORD:-bookkeeper}@postgres:5432/${POSTGRES_DB:-bookkeeper}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bookkeeper}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-bookkeeper}
       PGHOST: postgres
       PGPORT: "5432"
       PGUSER: ${POSTGRES_USER:-bookkeeper}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-bookkeeper}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       APP_HOST: "0.0.0.0"
-      APP_PORT: "3001"
+      APP_PORT: "3003"
       APP_DEBUG: "${APP_DEBUG:-false}"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3003}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3003/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     ports:
-      - "${APP_PORT:-3001}:3001"
+      - "${APP_PORT:-3003}:3003"
     volumes:
       - slowbooks_uploads:/app/app/static/uploads
       - slowbooks_backups:/app/backups
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
 
 volumes:
   postgres_data:

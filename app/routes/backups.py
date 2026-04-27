@@ -12,7 +12,9 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.backups import Backup
+from app.models.users import User
 from app.services.backup_service import create_backup, restore_backup, list_backup_files, BACKUP_DIR
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
@@ -27,7 +29,7 @@ class RestoreRequest(BaseModel):
 
 
 @router.get("")
-def list_backups(db: Session = Depends(get_db)):
+def list_backups(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """List only backups whose files still exist on disk."""
     db_backups = db.query(Backup).order_by(Backup.created_at.desc()).all()
     return [
@@ -40,7 +42,7 @@ def list_backups(db: Session = Depends(get_db)):
 
 
 @router.post("")
-def make_backup(data: BackupCreate = BackupCreate(), db: Session = Depends(get_db)):
+def make_backup(data: BackupCreate = BackupCreate(), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     result = create_backup(db, notes=data.notes)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Backup failed"))
@@ -48,7 +50,7 @@ def make_backup(data: BackupCreate = BackupCreate(), db: Session = Depends(get_d
 
 
 @router.get("/download/{filename}")
-def download_backup(filename: str):
+def download_backup(filename: str, current_user: User = Depends(get_current_user)):
     filepath = (BACKUP_DIR / filename).resolve()
     if not filepath.is_relative_to(BACKUP_DIR.resolve()):
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -58,7 +60,7 @@ def download_backup(filename: str):
 
 
 @router.post("/restore")
-def restore(data: RestoreRequest, db: Session = Depends(get_db)):
+def restore(data: RestoreRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Validate filename to prevent path traversal
     filepath = (BACKUP_DIR / data.filename).resolve()
     if not filepath.is_relative_to(BACKUP_DIR.resolve()):

@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.purchase_orders import PurchaseOrder, PurchaseOrderLine, POStatus
 from app.models.contacts import Vendor
 from app.schemas.purchase_orders import POCreate, POUpdate, POResponse
@@ -26,7 +28,7 @@ def _next_po_number(db: Session) -> str:
 
 
 @router.get("", response_model=list[POResponse])
-def list_pos(vendor_id: int = None, status: str = None, db: Session = Depends(get_db)):
+def list_pos(vendor_id: int = None, status: str = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = db.query(PurchaseOrder)
     if vendor_id:
         q = q.filter(PurchaseOrder.vendor_id == vendor_id)
@@ -43,7 +45,7 @@ def list_pos(vendor_id: int = None, status: str = None, db: Session = Depends(ge
 
 
 @router.get("/{po_id}", response_model=POResponse)
-def get_po(po_id: int, db: Session = Depends(get_db)):
+def get_po(po_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
@@ -54,7 +56,7 @@ def get_po(po_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=POResponse, status_code=201)
-def create_po(data: POCreate, db: Session = Depends(get_db)):
+def create_po(data: POCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     vendor = db.query(Vendor).filter(Vendor.id == data.vendor_id).first()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
@@ -90,7 +92,7 @@ def create_po(data: POCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{po_id}", response_model=POResponse)
-def update_po(po_id: int, data: POUpdate, db: Session = Depends(get_db)):
+def update_po(po_id: int, data: POUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
@@ -126,7 +128,7 @@ def update_po(po_id: int, data: POUpdate, db: Session = Depends(get_db)):
 
 
 @router.post("/{po_id}/convert-to-bill")
-def convert_to_bill(po_id: int, db: Session = Depends(get_db)):
+def convert_to_bill(po_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Convert a PO to a bill — creates bill with PO's line items."""
     from app.models.bills import Bill, BillLine, BillStatus
 

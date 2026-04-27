@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.accounts import Account, AccountType
 from app.models.transactions import Transaction, TransactionLine
 from app.models.invoices import Invoice, InvoiceStatus
@@ -35,6 +37,7 @@ def profit_loss(
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if not start_date:
         start_date = date(date.today().year, 1, 1)
@@ -78,7 +81,7 @@ def profit_loss(
 
 
 @router.get("/balance-sheet")
-def balance_sheet(as_of_date: date = Query(default=None), db: Session = Depends(get_db)):
+def balance_sheet(as_of_date: date = Query(default=None), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not as_of_date:
         as_of_date = date.today()
 
@@ -115,7 +118,7 @@ def balance_sheet(as_of_date: date = Query(default=None), db: Session = Depends(
 
 
 @router.get("/ar-aging")
-def ar_aging(as_of_date: date = Query(default=None), db: Session = Depends(get_db)):
+def ar_aging(as_of_date: date = Query(default=None), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not as_of_date:
         as_of_date = date.today()
 
@@ -175,6 +178,7 @@ def sales_tax_report(
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """CReportEngine::RunSalesTax() @ 0x002108A0"""
     if not start_date:
@@ -221,7 +225,7 @@ def sales_tax_report(
 
 
 @router.post("/sales-tax/pay")
-def pay_sales_tax(data: dict, db: Session = Depends(get_db)):
+def pay_sales_tax(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Record a sales tax payment — DR Sales Tax Payable, CR Bank Account"""
     from app.services.accounting import create_journal_entry, get_sales_tax_account_id
     from app.services.closing_date import check_closing_date
@@ -278,6 +282,7 @@ def general_ledger(
     end_date: date = Query(default=None),
     account_id: int = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """CReportEngine::RunGLDetail() @ 0x00211400"""
     if not start_date:
@@ -337,6 +342,7 @@ def income_by_customer(
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """CReportEngine::RunIncomeByCustomer() @ 0x00212000"""
     if not start_date:
@@ -389,8 +395,97 @@ def income_by_customer(
     }
 
 
+@router.get("/gst-summary")
+def gst_summary(
+    year: int = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Quarterly GST summary for BAS reporting.
+
+    Cash basis: GST is recognised when payment is received/made, so we sum
+    journal entries against the GST Collected (2210) and GST Input Tax Credits
+    (1800) accounts within each quarter.
+    """
+    from app.services.accounting import (
+        GST_COLLECTED_NUMBER, GST_INPUT_CREDITS_NUMBER, get_accounting_basis,
+    )
+
+    if not year:
+        year = date.today().year
+
+    basis = get_accounting_basis(db)
+
+    # Find the GST accounts
+    gst_collected_acct = db.query(Account).filter(
+        Account.account_number == GST_COLLECTED_NUMBER
+    ).first()
+    gst_input_acct = db.query(Account).filter(
+        Account.account_number == GST_INPUT_CREDITS_NUMBER
+    ).first()
+
+    quarters = []
+    for q in range(1, 5):
+        q_start = date(year, (q - 1) * 3 + 1, 1)
+        if q < 4:
+            q_end = date(year, q * 3 + 1, 1) - timedelta(days=1)
+        else:
+            q_end = date(year, 12, 31)
+
+        # GST Collected (liability — credits increase it)
+        gst_collected = Decimal("0")
+        if gst_collected_acct:
+            val = (
+                db.query(sqlfunc.coalesce(
+                    sqlfunc.sum(TransactionLine.credit - TransactionLine.debit), 0
+                ))
+                .join(Transaction, TransactionLine.transaction_id == Transaction.id)
+                .filter(TransactionLine.account_id == gst_collected_acct.id)
+                .filter(Transaction.date >= q_start, Transaction.date <= q_end)
+                .scalar()
+            )
+            gst_collected = Decimal(str(val or 0))
+
+        # GST Input Tax Credits (asset — debits increase it)
+        gst_input = Decimal("0")
+        if gst_input_acct:
+            val = (
+                db.query(sqlfunc.coalesce(
+                    sqlfunc.sum(TransactionLine.debit - TransactionLine.credit), 0
+                ))
+                .join(Transaction, TransactionLine.transaction_id == Transaction.id)
+                .filter(TransactionLine.account_id == gst_input_acct.id)
+                .filter(Transaction.date >= q_start, Transaction.date <= q_end)
+                .scalar()
+            )
+            gst_input = Decimal(str(val or 0))
+
+        net_gst = gst_collected - gst_input  # positive = owe ATO, negative = refund
+
+        quarters.append({
+            "quarter": f"Q{q}",
+            "start_date": q_start.isoformat(),
+            "end_date": q_end.isoformat(),
+            "gst_collected": float(gst_collected),
+            "gst_input_credits": float(gst_input),
+            "net_gst_payable": float(net_gst),
+        })
+
+    total_collected = sum(q["gst_collected"] for q in quarters)
+    total_input = sum(q["gst_input_credits"] for q in quarters)
+
+    return {
+        "year": year,
+        "accounting_basis": basis,
+        "quarters": quarters,
+        "total_gst_collected": total_collected,
+        "total_gst_input_credits": total_input,
+        "total_net_gst_payable": total_collected - total_input,
+    }
+
+
 @router.get("/ap-aging")
-def ap_aging(as_of_date: date = Query(default=None), db: Session = Depends(get_db)):
+def ap_aging(as_of_date: date = Query(default=None), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """AP Aging report — mirrors AR aging but for bills."""
     if not as_of_date:
         as_of_date = date.today()
@@ -458,6 +553,7 @@ def customer_statement_pdf(
     customer_id: int,
     as_of_date: date = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """CStatementPrintLayout::RenderPage() @ 0x00224000"""
     if not as_of_date:
@@ -503,6 +599,7 @@ def trial_balance(
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Trial Balance: sum all debits/credits per account for a date range."""
     if not start_date:
@@ -555,6 +652,7 @@ def cash_flow(
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Cash Flow Statement: Operating, Investing, Financing sections."""
     if not start_date:
@@ -618,7 +716,7 @@ def cash_flow(
 
 
 @router.post("/batch-email-statements")
-def batch_email_statements(db: Session = Depends(get_db)):
+def batch_email_statements(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Email statements to all customers with overdue invoices."""
     from app.services.email_service import send_email
 
@@ -688,7 +786,7 @@ def batch_email_statements(db: Session = Depends(get_db)):
 
 
 @router.post("/collection-letters")
-def collection_letters(data: dict, db: Session = Depends(get_db)):
+def collection_letters(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Generate and optionally email collection letters."""
     from app.services.email_service import send_email
 
@@ -763,6 +861,7 @@ def collection_letters(data: dict, db: Session = Depends(get_db)):
 def report_1099_summary(
     year: int = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """1099 Summary: total payments to 1099 vendors for a year."""
     if not year:

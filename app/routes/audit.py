@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.audit import AuditLog
+from app.models.users import User
 from app.schemas.audit import AuditLogResponse
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
@@ -25,6 +27,7 @@ def list_audit_logs(
     limit: int = Query(default=100, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     q = db.query(AuditLog)
     if table_name:
@@ -41,7 +44,7 @@ def list_audit_logs(
 
 
 @router.get("/tables")
-def list_audited_tables(db: Session = Depends(get_db)):
+def list_audited_tables(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get list of tables that have audit entries."""
     tables = db.query(AuditLog.table_name).distinct().order_by(AuditLog.table_name).all()
     return [t[0] for t in tables]

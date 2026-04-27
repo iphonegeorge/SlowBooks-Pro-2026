@@ -16,7 +16,7 @@ load_dotenv(BASE_DIR / ".env")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://bookkeeper:bookkeeper@localhost:5432/bookkeeper")
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
-APP_PORT = int(os.getenv("APP_PORT", "3001"))
+APP_PORT = int(os.getenv("APP_PORT", "3003"))
 APP_DEBUG = os.getenv("APP_DEBUG", "false").lower() == "true"
 
 # CCompanyInfo fields — originally at .QBW header offset 0x40

@@ -11,7 +11,9 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.payments import Payment, PaymentAllocation
+from app.models.users import User
 from app.models.invoices import Invoice, InvoiceStatus
 from app.models.contacts import Customer
 from app.services.accounting import create_journal_entry, get_ar_account_id, get_undeposited_funds_id
@@ -35,7 +37,7 @@ class BatchPaymentCreate(BaseModel):
 
 
 @router.post("")
-def create_batch_payment(data: BatchPaymentCreate, db: Session = Depends(get_db)):
+def create_batch_payment(data: BatchPaymentCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from datetime import date as date_type
     txn_date = date_type.fromisoformat(data.date)
     check_closing_date(db, txn_date)

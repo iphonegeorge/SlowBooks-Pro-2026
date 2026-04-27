@@ -14,11 +14,17 @@
 #   POST /api/qbo/export/{entity}  -> export single entity type
 # ============================================================================
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger(__name__)
+
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.schemas.qbo import QBOImportResult, QBOExportResult, QBOConnectionStatus
 from app.services import qbo_service
 from app.services import qbo_import
@@ -32,14 +38,14 @@ router = APIRouter(prefix="/api/qbo", tags=["qbo"])
 # ============================================================================
 
 @router.get("/auth-url")
-def get_auth_url(db: Session = Depends(get_db)):
+def get_auth_url(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Generate the Intuit OAuth authorization URL."""
     try:
         url = qbo_service.get_auth_url(db)
         return {"url": url}
     except Exception as e:
-        raise HTTPException(400, f"Failed to generate auth URL: {str(e)}. "
-                            "Check that Client ID and Client Secret are configured in Settings.")
+        logger.exception("Failed to generate QBO auth URL")
+        raise HTTPException(400, "Failed to generate authorization URL. Check QBO settings.")
 
 
 @router.get("/callback")
@@ -48,28 +54,31 @@ def oauth_callback(
     state: str = Query(...),
     realmId: str = Query(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Handle OAuth redirect from Intuit. Exchanges code for tokens."""
     try:
         qbo_service.handle_callback(db, code, state, realmId)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        logger.exception("QBO OAuth state mismatch")
+        raise HTTPException(400, "OAuth verification failed")
     except Exception as e:
-        raise HTTPException(500, f"OAuth callback failed: {str(e)}")
+        logger.exception("QBO OAuth callback failed")
+        raise HTTPException(500, "OAuth callback failed")
 
     # Redirect to QBO page in SPA
     return RedirectResponse(url="/#/qbo")
 
 
 @router.post("/disconnect")
-def disconnect(db: Session = Depends(get_db)):
+def disconnect(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Clear stored QBO tokens and disconnect."""
     qbo_service.disconnect(db)
     return {"status": "disconnected"}
 
 
 @router.get("/status", response_model=QBOConnectionStatus)
-def get_status(db: Session = Depends(get_db)):
+def get_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get QBO connection status. Never returns raw tokens."""
     connected = qbo_service.is_connected(db)
     company_name = ""
@@ -105,7 +114,7 @@ _IMPORT_ENTITY_MAP = {
 
 
 @router.post("/import", response_model=QBOImportResult)
-def import_all(db: Session = Depends(get_db)):
+def import_all(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Import all entity types from QBO in dependency order."""
     if not qbo_service.is_connected(db):
         raise HTTPException(400, "Not connected to QuickBooks Online")
@@ -113,12 +122,13 @@ def import_all(db: Session = Depends(get_db)):
         result = qbo_import.import_all(db)
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"Import failed: {str(e)}")
+        logger.exception("QBO import failed")
+        raise HTTPException(500, "Import failed")
     return result
 
 
 @router.post("/import/{entity}")
-def import_entity(entity: str, db: Session = Depends(get_db)):
+def import_entity(entity: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Import a single entity type from QBO."""
     if not qbo_service.is_connected(db):
         raise HTTPException(400, "Not connected to QuickBooks Online")
@@ -132,7 +142,8 @@ def import_entity(entity: str, db: Session = Depends(get_db)):
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"Import of {entity} failed: {str(e)}")
+        logger.exception("QBO entity import failed")
+        raise HTTPException(500, f"Import of {entity} failed")
 
     return result
 
@@ -152,7 +163,7 @@ _EXPORT_ENTITY_MAP = {
 
 
 @router.post("/export", response_model=QBOExportResult)
-def export_all(db: Session = Depends(get_db)):
+def export_all(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Export all entity types to QBO in dependency order."""
     if not qbo_service.is_connected(db):
         raise HTTPException(400, "Not connected to QuickBooks Online")
@@ -160,12 +171,13 @@ def export_all(db: Session = Depends(get_db)):
         result = qbo_export.export_all(db)
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"Export failed: {str(e)}")
+        logger.exception("QBO export failed")
+        raise HTTPException(500, "Export failed")
     return result
 
 
 @router.post("/export/{entity}")
-def export_entity(entity: str, db: Session = Depends(get_db)):
+def export_entity(entity: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Export a single entity type to QBO."""
     if not qbo_service.is_connected(db):
         raise HTTPException(400, "Not connected to QuickBooks Online")
@@ -179,6 +191,7 @@ def export_entity(entity: str, db: Session = Depends(get_db)):
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"Export of {entity} failed: {str(e)}")
+        logger.exception("QBO entity export failed")
+        raise HTTPException(500, f"Export of {entity} failed")
 
     return result

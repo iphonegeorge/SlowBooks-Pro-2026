@@ -9,24 +9,30 @@
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.payments import Payment, PaymentAllocation
 from app.models.invoices import Invoice, InvoiceStatus
 from app.models.contacts import Customer
 from app.schemas.payments import PaymentCreate, PaymentResponse
 from app.services.accounting import (
     create_journal_entry, get_ar_account_id, get_undeposited_funds_id,
+    get_default_income_account_id, get_gst_collected_account_id,
+    get_accounting_basis,
 )
+from app.models.items import Item
+from app.models.invoices import InvoiceLine, GSTClassification
 from app.services.closing_date import check_closing_date
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
 
 @router.get("", response_model=list[PaymentResponse])
-def list_payments(customer_id: int = None, db: Session = Depends(get_db)):
-    q = db.query(Payment)
+def list_payments(customer_id: int = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    q = db.query(Payment).options(joinedload(Payment.customer))
     if customer_id:
         q = q.filter(Payment.customer_id == customer_id)
     payments = q.order_by(Payment.date.desc()).all()
@@ -40,7 +46,7 @@ def list_payments(customer_id: int = None, db: Session = Depends(get_db)):
 
 
 @router.get("/{payment_id}", response_model=PaymentResponse)
-def get_payment(payment_id: int, db: Session = Depends(get_db)):
+def get_payment(payment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     payment = db.query(Payment).filter(Payment.id == payment_id).first()
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
@@ -51,7 +57,7 @@ def get_payment(payment_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=PaymentResponse, status_code=201)
-def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
+def create_payment(data: PaymentCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     check_closing_date(db, data.date)
     customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
     if not customer:
@@ -102,33 +108,98 @@ def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
 
     # ================================================================
     # Journal Entry — CReceivePayment::PostToJournal() @ 0x001A3A00
-    # DR  Bank/Undeposited Funds         payment amount
-    # CR  Accounts Receivable (1100)     payment amount
+    # Accrual: DR Bank, CR AR
+    # Cash:    DR Bank, CR Income (per invoice line), CR GST Collected
     # ================================================================
+    basis = get_accounting_basis(db)
     ar_id = get_ar_account_id(db)
     deposit_id = payment.deposit_to_account_id or get_undeposited_funds_id(db)
 
-    if ar_id and deposit_id:
-        journal_lines = [
-            {
+    if deposit_id:
+        journal_lines = []
+
+        if basis == "cash":
+            # Cash basis: income recognised now, proportional to each allocation
+            default_income_id = get_default_income_account_id(db)
+            gst_collected_id = get_gst_collected_account_id(db)
+
+            total_income = Decimal("0")
+            total_gst = Decimal("0")
+
+            for alloc_data in data.allocations:
+                invoice = db.query(Invoice).filter(Invoice.id == alloc_data.invoice_id).first()
+                if not invoice or invoice.total == 0:
+                    continue
+                alloc_amount = Decimal(str(alloc_data.amount))
+                # Proportion of this allocation vs invoice total
+                ratio = alloc_amount / Decimal(str(invoice.total))
+
+                # Credit income for each invoice line, proportional to payment
+                inv_lines = db.query(InvoiceLine).filter(
+                    InvoiceLine.invoice_id == invoice.id
+                ).all()
+                for inv_line in inv_lines:
+                    line_income = (Decimal(str(inv_line.amount)) * ratio).quantize(Decimal("0.01"))
+                    if line_income == 0:
+                        continue
+                    income_id = default_income_id
+                    if inv_line.item_id:
+                        item = db.query(Item).filter(Item.id == inv_line.item_id).first()
+                        if item and item.income_account_id:
+                            income_id = item.income_account_id
+                    journal_lines.append({
+                        "account_id": income_id,
+                        "debit": Decimal("0"),
+                        "credit": line_income,
+                        "description": inv_line.description or f"Invoice #{invoice.invoice_number}",
+                    })
+                    total_income += line_income
+
+                    # GST on this line (proportional)
+                    if inv_line.gst_classification == GSTClassification.TAXABLE and gst_collected_id:
+                        line_gst = (Decimal(str(inv_line.gst_amount or 0)) * ratio).quantize(Decimal("0.01"))
+                        if line_gst > 0:
+                            journal_lines.append({
+                                "account_id": gst_collected_id,
+                                "debit": Decimal("0"),
+                                "credit": line_gst,
+                                "description": f"GST - Invoice #{invoice.invoice_number}",
+                            })
+                            total_gst += line_gst
+
+            # DR Bank for total payment
+            total_credits = total_income + total_gst
+            journal_lines.insert(0, {
                 "account_id": deposit_id,
-                "debit": Decimal(str(data.amount)),
+                "debit": total_credits,
                 "credit": Decimal("0"),
                 "description": f"Payment from {customer.name}",
-            },
-            {
-                "account_id": ar_id,
-                "debit": Decimal("0"),
-                "credit": Decimal(str(data.amount)),
-                "description": f"Payment from {customer.name}",
-            },
-        ]
-        txn = create_journal_entry(
-            db, data.date, f"Payment from {customer.name}",
-            journal_lines, source_type="payment", source_id=payment.id,
-            reference=data.reference or data.check_number or "",
-        )
-        payment.transaction_id = txn.id
+            })
+        else:
+            # Accrual basis: DR Bank, CR AR
+            if ar_id:
+                journal_lines = [
+                    {
+                        "account_id": deposit_id,
+                        "debit": Decimal(str(data.amount)),
+                        "credit": Decimal("0"),
+                        "description": f"Payment from {customer.name}",
+                    },
+                    {
+                        "account_id": ar_id,
+                        "debit": Decimal("0"),
+                        "credit": Decimal(str(data.amount)),
+                        "description": f"Payment from {customer.name}",
+                    },
+                ]
+
+        if journal_lines:
+            txn = create_journal_entry(
+                db, data.date, f"Payment from {customer.name}",
+                journal_lines, source_type="payment", source_id=payment.id,
+                reference=data.reference or data.check_number or "",
+            )
+            payment.transaction_id = txn.id
 
     db.commit()
     db.refresh(payment)
@@ -138,7 +209,7 @@ def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/{payment_id}/void", response_model=PaymentResponse)
-def void_payment(payment_id: int, db: Session = Depends(get_db)):
+def void_payment(payment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Void a payment — reverses journal entry and restores invoice balances"""
     payment = db.query(Payment).filter(Payment.id == payment_id).first()
     if not payment:

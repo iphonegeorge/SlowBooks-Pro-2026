@@ -37,7 +37,7 @@ def create_checkout_session(invoice: Invoice, settings: dict, base_url: str) -> 
         mode="payment",
         line_items=[{
             "price_data": {
-                "currency": "usd",
+                "currency": settings.get("currency", "aud").lower(),
                 "product_data": {
                     "name": f"Invoice #{invoice.invoice_number}",
                     "description": f"Payment for invoice #{invoice.invoice_number}",

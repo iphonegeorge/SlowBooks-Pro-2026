@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.contacts import Customer, Vendor
 from app.models.items import Item
 from app.models.invoices import Invoice
@@ -20,7 +22,7 @@ LIMIT_PER = 5
 
 
 @router.get("")
-def unified_search(q: str = Query(min_length=2), db: Session = Depends(get_db)):
+def unified_search(q: str = Query(min_length=2), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     pattern = f"%{q}%"
     results = {}
 

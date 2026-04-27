@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.invoices import Invoice, InvoiceStatus
 from app.models.payments import Payment, PaymentAllocation
 from app.services.accounting import (
@@ -34,7 +36,7 @@ def _require_stripe(db: Session) -> dict:
 
 
 @router.post("/create-checkout-session")
-def create_checkout(data: dict, request: Request, db: Session = Depends(get_db)):
+def create_checkout(data: dict, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a Stripe Checkout Session for an invoice."""
     settings = _require_stripe(db)
 
@@ -50,6 +52,11 @@ def create_checkout(data: dict, request: Request, db: Session = Depends(get_db))
     if invoice.balance_due <= 0:
         raise HTTPException(status_code=400, detail="No balance due")
 
+    # Include currency from app settings for Stripe checkout
+    from app.routes.settings import _get_all as get_app_settings
+    app_settings = get_app_settings(db)
+    settings["currency"] = app_settings.get("currency", "aud").lower()
+
     base_url = str(request.base_url).rstrip("/")
     checkout_url, session_id = create_checkout_session(invoice, settings, base_url)
 
@@ -60,7 +67,7 @@ def create_checkout(data: dict, request: Request, db: Session = Depends(get_db))
 
 
 @router.post("/webhook")
-async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+async def stripe_webhook(request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Handle Stripe webhook events. Verifies signature, records payment."""
     settings = get_stripe_settings(db)
     webhook_secret = settings.get("stripe_webhook_secret", "")
@@ -162,7 +169,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/payment-link/{invoice_id}")
-def get_payment_link(invoice_id: int, request: Request, db: Session = Depends(get_db)):
+def get_payment_link(invoice_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get the public payment URL for an invoice."""
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:

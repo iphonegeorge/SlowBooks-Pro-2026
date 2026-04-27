@@ -18,11 +18,14 @@ CHART_OF_ACCOUNTS = [
     {"account_number": "1510", "name": "Accumulated Depreciation", "account_type": "asset"},
     {"account_number": "1600", "name": "Vehicles", "account_type": "asset"},
     {"account_number": "1700", "name": "Other Assets", "account_type": "asset"},
+    {"account_number": "1800", "name": "GST Input Tax Credits", "account_type": "asset"},
 
     # Liabilities (2000s)
     {"account_number": "2000", "name": "Accounts Payable", "account_type": "liability"},
     {"account_number": "2100", "name": "Credit Card", "account_type": "liability"},
     {"account_number": "2200", "name": "Sales Tax Payable", "account_type": "liability"},
+    {"account_number": "2210", "name": "GST Collected", "account_type": "liability"},
+    {"account_number": "2220", "name": "GST Payable", "account_type": "liability"},
     {"account_number": "2300", "name": "Payroll Liabilities", "account_type": "liability"},
     {"account_number": "2400", "name": "Loan Payable", "account_type": "liability"},
     {"account_number": "2500", "name": "Other Current Liabilities", "account_type": "liability"},

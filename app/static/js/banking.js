@@ -289,7 +289,7 @@ const BankingPage = {
         const formData = new FormData();
         formData.append('file', file);
         try {
-            const resp = await fetch('/api/bank-import/preview', { method: 'POST', body: formData });
+            const resp = await fetch('/api/bank-import/preview', { method: 'POST', body: formData, headers: API.authHeaders() });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.detail || 'Parse failed');
             BankingPage._ofxData = data;
@@ -320,7 +320,7 @@ const BankingPage = {
         try {
             const formData = new FormData();
             formData.append('file', $('#ofx-file').files[0]);
-            const resp = await fetch(`/api/bank-import/import/${bankAccountId}`, { method: 'POST', body: formData });
+            const resp = await fetch(`/api/bank-import/import/${bankAccountId}`, { method: 'POST', body: formData, headers: API.authHeaders() });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.detail || 'Import failed');
             toast(`Imported ${data.imported} transactions (${data.skipped_duplicates} duplicates skipped)`);

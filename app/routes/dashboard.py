@@ -7,16 +7,19 @@ from sqlalchemy import func
 from decimal import Decimal
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.invoices import Invoice, InvoiceStatus
 from app.models.payments import Payment
 from app.models.contacts import Customer
 from app.models.banking import BankAccount
+from app.services.accounting import get_accounting_basis
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("")
-def get_dashboard(db: Session = Depends(get_db)):
+def get_dashboard(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     total_receivables = db.query(func.coalesce(func.sum(Invoice.balance_due), 0)).filter(
         Invoice.status.in_([InvoiceStatus.SENT, InvoiceStatus.PARTIAL])
     ).scalar()
@@ -84,7 +87,7 @@ def get_dashboard(db: Session = Depends(get_db)):
 
 
 @router.get("/charts")
-def get_dashboard_charts(db: Session = Depends(get_db)):
+def get_dashboard_charts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Feature 3: Dashboard Charts — AR aging buckets + monthly revenue trend."""
     today = date.today()
 
@@ -113,6 +116,8 @@ def get_dashboard_charts(db: Session = Depends(get_db)):
             aging_90 += inv.balance_due
 
     # Monthly revenue — last 12 months
+    # Cash basis: revenue = payments received; Accrual: revenue = invoices raised
+    basis = get_accounting_basis(db)
     monthly_revenue = []
     for i in range(11, -1, -1):
         year = today.year
@@ -124,10 +129,15 @@ def get_dashboard_charts(db: Session = Depends(get_db)):
         start = date(year, month, 1)
         end = date(year, month, last_day)
 
-        total = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
-            Invoice.date >= start, Invoice.date <= end,
-            Invoice.status != InvoiceStatus.VOID,
-        ).scalar()
+        if basis == "cash":
+            total = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+                Payment.date >= start, Payment.date <= end,
+            ).scalar()
+        else:
+            total = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
+                Invoice.date >= start, Invoice.date <= end,
+                Invoice.status != InvoiceStatus.VOID,
+            ).scalar()
 
         monthly_revenue.append({
             "month": start.strftime("%b"),

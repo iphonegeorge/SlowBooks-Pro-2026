@@ -10,6 +10,8 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.tax import TaxCategoryMapping
 from app.models.accounts import Account
 from app.schemas.tax import TaxMappingCreate, TaxMappingResponse
@@ -23,6 +25,7 @@ def schedule_c_report(
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if not start_date:
         start_date = date(date.today().year, 1, 1)
@@ -36,6 +39,7 @@ def schedule_c_csv(
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if not start_date:
         start_date = date(date.today().year, 1, 1)
@@ -48,7 +52,7 @@ def schedule_c_csv(
 
 
 @router.get("/mappings", response_model=list[TaxMappingResponse])
-def list_mappings(db: Session = Depends(get_db)):
+def list_mappings(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     mappings = db.query(TaxCategoryMapping).all()
     results = []
     for m in mappings:
@@ -61,7 +65,7 @@ def list_mappings(db: Session = Depends(get_db)):
 
 
 @router.post("/mappings", response_model=TaxMappingResponse, status_code=201)
-def create_mapping(data: TaxMappingCreate, db: Session = Depends(get_db)):
+def create_mapping(data: TaxMappingCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     existing = db.query(TaxCategoryMapping).filter(TaxCategoryMapping.account_id == data.account_id).first()
     if existing:
         existing.tax_line = data.tax_line

@@ -9,8 +9,17 @@
 function $(sel, parent = document) { return parent.querySelector(sel); }
 function $$(sel, parent = document) { return [...parent.querySelectorAll(sel)]; }
 
+// Locale/currency loaded from settings; defaults to AUD/en-AU
+let _currency = 'AUD';
+let _locale = 'en-AU';
+
+function setLocaleSettings(currency, locale) {
+    if (currency) _currency = currency;
+    if (locale) _locale = locale;
+}
+
 function formatCurrency(amount) {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
+    return new Intl.NumberFormat(_locale, { style: 'currency', currency: _currency }).format(amount || 0);
 }
 
 function formatDate(dateStr) {
@@ -19,7 +28,7 @@ function formatDate(dateStr) {
         ? new Date(dateStr)
         : new Date(dateStr + 'T00:00:00');
     if (Number.isNaN(d.getTime())) return 'Invalid date';
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return d.toLocaleDateString(_locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function todayISO() {

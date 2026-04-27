@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.auth import get_current_user
+from app.models.users import User
 from app.models.payroll import PayRun, PayStub, PayRunStatus, Employee
 from app.models.accounts import Account
 from app.schemas.payroll import PayRunCreate, PayRunResponse, PayStubResponse
@@ -19,7 +21,7 @@ router = APIRouter(prefix="/api/payroll", tags=["payroll"])
 
 
 @router.get("", response_model=list[PayRunResponse])
-def list_pay_runs(db: Session = Depends(get_db)):
+def list_pay_runs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     runs = (
         db.query(PayRun)
         .options(joinedload(PayRun.stubs).joinedload(PayStub.employee))
@@ -37,7 +39,7 @@ def list_pay_runs(db: Session = Depends(get_db)):
 
 
 @router.get("/{run_id}", response_model=PayRunResponse)
-def get_pay_run(run_id: int, db: Session = Depends(get_db)):
+def get_pay_run(run_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     run = (
         db.query(PayRun)
         .options(joinedload(PayRun.stubs).joinedload(PayStub.employee))
@@ -54,7 +56,7 @@ def get_pay_run(run_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=PayRunResponse, status_code=201)
-def create_pay_run(data: PayRunCreate, db: Session = Depends(get_db)):
+def create_pay_run(data: PayRunCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     run = PayRun(
         period_start=data.period_start, period_end=data.period_end,
         pay_date=data.pay_date,
@@ -113,7 +115,7 @@ def create_pay_run(data: PayRunCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/{run_id}/process")
-def process_pay_run(run_id: int, db: Session = Depends(get_db)):
+def process_pay_run(run_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Process pay run — creates journal entries."""
     run = db.query(PayRun).filter(PayRun.id == run_id).first()
     if not run:

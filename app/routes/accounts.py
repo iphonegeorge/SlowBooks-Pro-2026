@@ -2,14 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.accounts import Account
+from app.models.users import User
 from app.schemas.accounts import AccountCreate, AccountUpdate, AccountResponse
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
 @router.get("", response_model=list[AccountResponse])
-def list_accounts(active_only: bool = False, account_type: str = None, db: Session = Depends(get_db)):
+def list_accounts(active_only: bool = False, account_type: str = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = db.query(Account)
     if active_only:
         q = q.filter(Account.is_active == True)
@@ -19,7 +21,7 @@ def list_accounts(active_only: bool = False, account_type: str = None, db: Sessi
 
 
 @router.get("/{account_id}", response_model=AccountResponse)
-def get_account(account_id: int, db: Session = Depends(get_db)):
+def get_account(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     account = db.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -27,7 +29,7 @@ def get_account(account_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=AccountResponse, status_code=201)
-def create_account(data: AccountCreate, db: Session = Depends(get_db)):
+def create_account(data: AccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     account = Account(**data.model_dump())
     db.add(account)
     db.commit()
@@ -36,7 +38,7 @@ def create_account(data: AccountCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{account_id}", response_model=AccountResponse)
-def update_account(account_id: int, data: AccountUpdate, db: Session = Depends(get_db)):
+def update_account(account_id: int, data: AccountUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     account = db.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -48,7 +50,7 @@ def update_account(account_id: int, data: AccountUpdate, db: Session = Depends(g
 
 
 @router.delete("/{account_id}")
-def delete_account(account_id: int, db: Session = Depends(get_db)):
+def delete_account(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     account = db.query(Account).filter(Account.id == account_id).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
