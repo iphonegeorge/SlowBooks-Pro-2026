@@ -619,7 +619,7 @@ td.amount, th.amount {
     z-index: 200;
 }
 
-.modal-overlay.hidden { display: none; }
+/* .modal-overlay.hidden covered by generic .hidden */
 
 .modal {
     background: var(--form-bg);
@@ -845,6 +845,9 @@ tr.clickable { cursor: pointer; }
  * Reconstructed from CAboutDlg (IDD_ABOUTBOX resource id=0x0064)
  * ======================================================================== */
 
+/* Generic hide class — used by login/register form toggle, modals, etc. */
+.hidden { display: none !important; }
+
 .splash-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -856,7 +859,7 @@ tr.clickable { cursor: pointer; }
     animation: splash-fade-in 0.3s ease;
 }
 
-.splash-overlay.hidden { display: none; }
+/* .splash-overlay.hidden covered by generic .hidden */
 
 @keyframes splash-fade-in {
     from { opacity: 0; }
@@ -957,7 +960,7 @@ tr.clickable { cursor: pointer; }
     z-index: 600;
 }
 
-.login-overlay.hidden { display: none; }
+/* .login-overlay.hidden covered by generic .hidden */
 
 .login-box {
     width: 380px;
@@ -1001,30 +1004,31 @@ tr.clickable { cursor: pointer; }
 
 .login-field label {
     display: block;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
-    color: rgba(255,255,255,0.6);
+    color: rgba(255,255,255,0.85);
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
 }
 
 .login-field input {
     width: 100%;
-    padding: 8px 10px;
+    padding: 9px 11px;
     font-family: var(--font);
-    font-size: 12px;
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
+    font-size: 13px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.25);
     color: #ffffff;
-    border-radius: 2px;
+    border-radius: 3px;
     box-sizing: border-box;
 }
 
 .login-field input:focus {
     outline: none;
     border-color: var(--qb-gold);
-    background: rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.18);
+    box-shadow: 0 0 0 2px rgba(196,163,68,0.2);
 }
 
 .login-btn {
@@ -1063,21 +1067,28 @@ tr.clickable { cursor: pointer; }
     text-align: left;
 }
 
-.login-error.hidden { display: none; }
+/* .login-error.hidden covered by generic .hidden */
 
 .login-switch {
-    margin-top: 14px;
-    font-size: 10px;
-    color: rgba(255,255,255,0.4);
+    margin-top: 16px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
 }
 
 .login-switch a {
     color: var(--qb-gold);
     text-decoration: none;
+    font-weight: 600;
 }
 
 .login-switch a:hover {
     text-decoration: underline;
+    color: #ddaa44;
+}
+
+.splash-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
 }
 
 .topbar-user {

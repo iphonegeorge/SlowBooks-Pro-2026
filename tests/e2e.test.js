@@ -14,6 +14,9 @@ const puppeteer = require('puppeteer');
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3010';
 const SLOW = process.env.SLOW ? parseInt(process.env.SLOW) : 0; // ms delay between actions
+const TEST_USER = process.env.ADMIN_USERNAME || 'gmirabelli';
+const TEST_PASS = process.env.ADMIN_PASSWORD || 'Slowbooks2026';
+const TEST_EMAIL = process.env.ADMIN_EMAIL || 'george@slowbooks.local';
 
 let browser, page;
 let passed = 0, failed = 0, total = 0;
@@ -157,17 +160,34 @@ async function testRegistration() {
     await page.waitForSelector('#login-screen', { timeout: 10000 });
     assert(true, 'Login screen displayed');
 
-    // Switch to register form
-    const regLink = await page.$('a[onclick*="showRegister"]');
-    if (regLink) {
-        await regLink.click();
-        await sleep(300);
-    }
-    await page.waitForSelector('#register-form:not(.hidden)', { timeout: 3000 });
+    // Check if admin was pre-seeded from env vars
+    const status = await page.evaluate(async (url) => {
+        const r = await fetch(`${url}/api/auth/status`);
+        return r.json();
+    }, BASE_URL);
 
-    await clearAndType('#reg-username', 'gmirabelli');
-    await clearAndType('#reg-email', 'george@slowbooks.local');
-    await clearAndType('#reg-password', 'slowbooks2026');
+    if (!status.needs_setup) {
+        // Admin pre-seeded — skip registration
+        assert(true, `Admin pre-seeded from env (${TEST_USER}) — skipping registration`);
+        console.log('');
+        return;
+    }
+
+    // First boot — register via the UI
+    await sleep(500);
+    const regVisible = await page.$('#register-form:not(.hidden)');
+    if (!regVisible) {
+        const regLink = await page.$('a[onclick*="showRegister"]');
+        if (regLink) {
+            await regLink.click();
+            await sleep(300);
+        }
+    }
+    await page.waitForSelector('#register-form:not(.hidden)', { timeout: 5000 });
+
+    await clearAndType('#reg-username', TEST_USER);
+    await clearAndType('#reg-email', TEST_EMAIL);
+    await clearAndType('#reg-password', TEST_PASS);
     await page.click('#register-submit');
     await sleep(1500);
 
@@ -192,28 +212,69 @@ async function testLogin() {
     }, sidebar) : false;
 
     if (!sidebarVisible) {
-        // Need to login manually
-        await sleep(500);
-
-        // Make sure login form is showing (not register)
-        const loginForm = await page.$('#login-form:not(.hidden)');
-        if (!loginForm) {
-            const loginLink = await page.$('a[onclick*="showLoginForm"]');
-            if (loginLink) {
-                await loginLink.click();
-                await sleep(300);
-            }
-        }
+        // Need to login manually — wait for auth/status fetch to show the login form
+        await page.waitForFunction(
+            () => {
+                const lf = document.querySelector('#login-form');
+                return lf && !lf.classList.contains('hidden');
+            },
+            { timeout: 5000 }
+        );
 
         await page.waitForSelector('#login-username', { visible: true, timeout: 5000 });
-        await clearAndType('#login-username', 'gmirabelli');
-        await clearAndType('#login-password', 'slowbooks2026');
+        await clearAndType('#login-username', TEST_USER);
+        await clearAndType('#login-password', TEST_PASS);
         await page.click('#login-submit');
         await sleep(2000);
+
+        // Check if login failed (error message visible)
+        const loginErr = await page.evaluate(() => {
+            const el = document.querySelector('#login-error');
+            return (el && !el.classList.contains('hidden')) ? el.textContent : '';
+        });
+        if (loginErr) {
+            console.log(`    \x1b[33mLogin error: ${loginErr}\x1b[0m`);
+        }
+
+        // Debug: check page state
+        const debugState = await page.evaluate(() => {
+            const app = document.querySelector('#app');
+            const ls = document.querySelector('#login-screen');
+            return {
+                appHidden: app?.classList.contains('hidden'),
+                loginScreenHidden: ls?.classList.contains('hidden'),
+                hasToken: !!localStorage.getItem('slowbooks_token'),
+                hasUser: !!localStorage.getItem('slowbooks_user'),
+            };
+        });
+        if (debugState.appHidden) {
+            console.log(`    \x1b[33mDebug: app.hidden=${debugState.appHidden}, loginScreen.hidden=${debugState.loginScreenHidden}, token=${debugState.hasToken}, user=${debugState.hasUser}\x1b[0m`);
+        }
     }
 
-    // App should be visible with sidebar
-    await page.waitForSelector('#sidebar', { timeout: 10000 });
+    // Debug: check page state before asserting
+    const preState = await page.evaluate(() => {
+        const app = document.querySelector('#app');
+        const ls = document.querySelector('#login-screen');
+        const err = document.querySelector('#login-error');
+        return {
+            appClasses: app?.className || 'N/A',
+            loginScreenClasses: ls?.className || 'N/A',
+            loginError: (err && !err.classList.contains('hidden')) ? err.textContent : '',
+            hasToken: !!localStorage.getItem('slowbooks_token'),
+            url: location.href,
+        };
+    });
+    console.log(`    State: app="${preState.appClasses}" loginScreen="${preState.loginScreenClasses}" token=${preState.hasToken} err="${preState.loginError}"`);
+
+    // App should be visible (not just in DOM — actually rendered)
+    await page.waitForFunction(
+        () => {
+            const app = document.querySelector('#app');
+            return app && !app.classList.contains('hidden');
+        },
+        { timeout: 10000 }
+    );
     assert(true, 'Logged in — app visible with sidebar');
 
     // Check username shows in topbar (may need a moment to render)
@@ -228,7 +289,7 @@ async function testLogin() {
         catch { return ''; }
     });
     assert(
-        userText.includes('gmirabelli') || storedUser.includes('gmirabelli'),
+        userText.includes(TEST_USER) || storedUser.includes(TEST_USER),
         `User authenticated (topbar: "${userText}", stored: "${storedUser}")`
     );
     console.log('');
@@ -257,7 +318,7 @@ async function testSecurityGuards() {
         const r = await fetch(`${url}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: 'hacker', email: 'h@h.com', password: '12345678' }),
+            body: JSON.stringify({ username: 'hacker', email: 'h@h.com', password: 'Hacker1234' }),
         });
         return r.status;
     }, BASE_URL);

@@ -17,7 +17,17 @@
 
 set -uo pipefail
 
-BASE_URL="http://localhost:3010"
+# Read ADMIN_* credentials from .env (if present) without sourcing the whole file
+# (sourcing would corrupt POSTGRES_PASSWORD if it contains # characters)
+ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
+if [ -f "$ENV_FILE" ]; then
+    _read_env() { grep "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-; }
+    ADMIN_USERNAME="${ADMIN_USERNAME:-$(_read_env ADMIN_USERNAME)}"
+    ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(_read_env ADMIN_PASSWORD)}"
+    ADMIN_EMAIL="${ADMIN_EMAIL:-$(_read_env ADMIN_EMAIL)}"
+fi
+
+BASE_URL="http://localhost:${APP_PORT:-3010}"
 API="$BASE_URL/api"
 BOLD="\033[1m"
 GREEN="\033[32m"
@@ -101,21 +111,35 @@ echo ""
 # Step 4: Register and login
 # ---------------------------------------------------------------------------
 echo -e "${BOLD}[4/9] Registering admin account and logging in...${RESET}"
-REG_RESULT=$(curl -s -w "\n%{http_code}" -X POST "$API/auth/register" \
-    -H "Content-Type: application/json" \
-    -d '{"username":"gmirabelli","email":"george@slowbooks.local","password":"slowbooks2026"}')
-REG_CODE=$(echo "$REG_RESULT" | tail -1)
-REG_BODY=$(echo "$REG_RESULT" | sed '$d')
 
-if [ "$REG_CODE" = "201" ]; then
-    pass "Admin account created ($(echo "$REG_BODY" | jq_val "['username']"))"
+# Check if admin was pre-seeded from env vars
+STATUS_BODY=$(curl -s "$API/auth/status")
+NEEDS_SETUP=$(echo "$STATUS_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('needs_setup',False))" 2>/dev/null)
+
+# Determine credentials — use ADMIN_USERNAME/PASSWORD env vars if set, else defaults
+TEST_USER="${ADMIN_USERNAME:-gmirabelli}"
+TEST_PASS="${ADMIN_PASSWORD:-Slowbooks2026}"
+TEST_EMAIL="${ADMIN_EMAIL:-george@slowbooks.local}"
+
+if [ "$NEEDS_SETUP" = "True" ]; then
+    REG_RESULT=$(curl -s -w "\n%{http_code}" -X POST "$API/auth/register" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"$TEST_USER\",\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASS\"}")
+    REG_CODE=$(echo "$REG_RESULT" | tail -1)
+    REG_BODY=$(echo "$REG_RESULT" | sed '$d')
+
+    if [ "$REG_CODE" = "201" ]; then
+        pass "Admin account created ($TEST_USER)"
+    else
+        fail "Register" "HTTP $REG_CODE — $REG_BODY"
+    fi
 else
-    fail "Register" "HTTP $REG_CODE — $REG_BODY"
+    pass "Admin pre-seeded from env ($TEST_USER)"
 fi
 
 LOGIN_RESULT=$(curl -s -w "\n%{http_code}" -X POST "$API/auth/login" \
     -H "Content-Type: application/json" \
-    -d '{"username":"gmirabelli","password":"slowbooks2026"}')
+    -d "{\"username\":\"$TEST_USER\",\"password\":\"$TEST_PASS\"}")
 LOGIN_CODE=$(echo "$LOGIN_RESULT" | tail -1)
 LOGIN_BODY=$(echo "$LOGIN_RESULT" | sed '$d')
 
@@ -142,7 +166,7 @@ fi
 
 REG2_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/auth/register" \
     -H "Content-Type: application/json" \
-    -d '{"username":"hacker","email":"h@h.com","password":"12345678"}')
+    -d '{"username":"hacker","email":"h@h.com","password":"Hacker1234"}')
 if [ "$REG2_CODE" = "403" ]; then
     pass "Second registration blocked (403)"
 else
@@ -482,8 +506,8 @@ else
     echo -e "${GREEN}All tests passed! App is running at $BASE_URL${RESET}"
     echo ""
     echo "  Login credentials:"
-    echo "    Username: gmirabelli"
-    echo "    Password: slowbooks2026"
+    echo "    Username: $TEST_USER"
+    echo "    Password: $TEST_PASS"
     echo ""
     echo "  To stop:  docker compose down"
     echo "  To logs:  docker compose logs -f slowbooks"

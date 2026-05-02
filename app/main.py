@@ -42,6 +42,7 @@ from app.routes import bank_rules, budgets, attachments, email_templates
 
 from app.database import SessionLocal
 from app.services.audit import register_audit_hooks
+from app.auth import seed_admin_from_env
 
 # ---------------------------------------------------------------------------
 # Rate limiter (shared instance)
@@ -147,6 +148,15 @@ app.include_router(email_templates.router)
 
 # Register audit log hooks
 register_audit_hooks(SessionLocal)
+
+# Seed admin from env vars (ADMIN_USERNAME / ADMIN_PASSWORD) on first boot
+_seed_db = SessionLocal()
+try:
+    if seed_admin_from_env(_seed_db):
+        import logging
+        logging.getLogger(__name__).info("Admin user created from environment variables")
+finally:
+    _seed_db.close()
 
 # Static files
 static_dir = Path(__file__).parent / "static"

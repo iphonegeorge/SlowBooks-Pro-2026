@@ -611,11 +611,33 @@ const App = {
         const ls = $('#login-screen');
         ls.classList.remove('hidden');
         ls.style.display = '';
-        $('#login-form').classList.remove('hidden');
-        $('#register-form').classList.add('hidden');
         $('#login-error').classList.add('hidden');
+        $('#register-error').classList.add('hidden');
         $('#login-username').value = '';
         $('#login-password').value = '';
+
+        // Check if any users exist — if not, show register form for first-time setup
+        fetch('/api/auth/status')
+            .then(r => r.json())
+            .then(data => {
+                const regLink = document.querySelector('.login-switch a[onclick*="showRegister"]');
+                if (data.needs_setup) {
+                    $('#login-form').classList.add('hidden');
+                    $('#register-form').classList.remove('hidden');
+                } else {
+                    $('#login-form').classList.remove('hidden');
+                    $('#register-form').classList.add('hidden');
+                    // Hide "Create first admin account" link if registration is disabled or users exist
+                    if (regLink && (!data.registration_allowed || data.user_count > 0)) {
+                        regLink.parentElement.classList.add('hidden');
+                    }
+                }
+            })
+            .catch(() => {
+                // Fallback: show login form
+                $('#login-form').classList.remove('hidden');
+                $('#register-form').classList.add('hidden');
+            });
     },
 
     showRegister(e) {
